@@ -376,3 +376,80 @@ endif()
 if(R3D_BUILD_EXAMPLES)
     include("${R3D_ROOT_PATH}/examples/CMakeLists.txt")
 endif()
+
+# ============================================================
+# Install + Export R3D for SDK-style consumption
+# ============================================================
+
+include(GNUInstallDirs)
+include(CMakePackageConfigHelpers)
+
+# Decide which dependency targets to export.
+set(_r3d_export_targets ${PROJECT_NAME})
+
+if(R3D_RAYLIB_VENDORED)
+    list(APPEND _r3d_export_targets raylib)
+endif()
+
+if(R3D_ASSIMP_VENDORED)
+    list(APPEND _r3d_export_targets assimp)
+endif()
+
+# Raylib deps
+if(TARGET glfw)
+    list(APPEND _r3d_export_targets glfw)
+endif()
+
+# Assimp deps
+if(TARGET zlibstatic)
+    list(APPEND _r3d_export_targets zlibstatic)
+endif()
+
+# Install & export targets
+install(TARGETS ${_r3d_export_targets}
+    EXPORT r3dTargets
+    ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
+    LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
+    RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
+    INCLUDES DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
+)
+
+# Install public headers
+# NOTE: R3D's public headers already live under include/r3d/...
+# So we install the *parent* include dir to avoid include/r3d/r3d double nesting.
+install(DIRECTORY
+    "${R3D_ROOT_PATH}/include/"
+    DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
+)
+
+# Install generated config header into the same include tree:
+# generated/include/r3d_config.h should end up at include/r3d/r3d_config.h
+install(FILES
+    "${CMAKE_CURRENT_BINARY_DIR}/generated/include/r3d_config.h"
+    DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/r3d
+)
+
+# Export targets for consumers
+install(EXPORT r3dTargets
+    NAMESPACE r3d::
+    DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/r3d
+)
+
+# Generate package config + version files
+configure_package_config_file(
+    "${R3D_ROOT_PATH}/cmake/r3dConfig.cmake.in"
+    "${CMAKE_CURRENT_BINARY_DIR}/r3dConfig.cmake"
+    INSTALL_DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/r3d
+)
+
+write_basic_package_version_file(
+    "${CMAKE_CURRENT_BINARY_DIR}/r3dConfigVersion.cmake"
+    VERSION ${PROJECT_VERSION}
+    COMPATIBILITY SameMajorVersion
+)
+
+install(FILES
+    "${CMAKE_CURRENT_BINARY_DIR}/r3dConfig.cmake"
+    "${CMAKE_CURRENT_BINARY_DIR}/r3dConfigVersion.cmake"
+    DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/r3d
+)
