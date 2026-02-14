@@ -1,6 +1,6 @@
 /* r3d_mesh.h -- R3D Mesh Module.
  *
- * Copyright (c) 2025 Le Juez Victor
+ * Copyright (c) 2025-2026 Le Juez Victor
  *
  * This software is provided 'as-is', without any express or implied warranty.
  * For conditions of distribution and use, see accompanying LICENSE file.
@@ -177,6 +177,17 @@ R3DAPI R3D_Mesh R3D_GenMeshCube(float width, float height, float length);
 R3DAPI R3D_Mesh R3D_GenMeshCubeEx(float width, float height, float length, int resX, int resY, int resZ);
 
 /**
+ * @brief Generate a slope mesh.
+ * @param width Width along X axis.
+ * @param height Height along Y axis.
+ * @param length Length along Z axis.
+ * @param slopeNormal Direction of the slope.
+ * @return Mesh ready for rendering.
+ * @see R3D_GenMeshDataSlope
+ */
+R3DAPI R3D_Mesh R3D_GenMeshSlope(float width, float height, float length, Vector3 slopeNormal);
+
+/**
  * @brief Generate a sphere mesh.
  * @param radius Sphere radius.
  * @param rings Number of latitude divisions.
@@ -206,6 +217,17 @@ R3DAPI R3D_Mesh R3D_GenMeshHemiSphere(float radius, int rings, int slices);
  * @see R3D_GenMeshDataCylinder
  */
 R3DAPI R3D_Mesh R3D_GenMeshCylinder(float bottomRadius, float topRadius, float height, int slices);
+
+/**
+ * @brief Generate a capsule mesh.
+ * @param radius Capsule radius.
+ * @param height Height along Y axis.
+ * @param rings Number of latitude divisions.
+ * @param slices Number of longitude divisions.
+ * @return Mesh ready for rendering.
+ * @see R3D_GenMeshDataCapsule
+ */
+R3DAPI R3D_Mesh R3D_GenMeshCapsule(float radius, float height, int rings, int slices);
 
 /**
  * @brief Generate a torus mesh.

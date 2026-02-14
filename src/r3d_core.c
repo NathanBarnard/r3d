@@ -1,6 +1,6 @@
 ﻿/* r3d_core.h -- R3D Core Module.
  *
- * Copyright (c) 2025 Le Juez Victor
+ * Copyright (c) 2025-2026 Le Juez Victor
  *
  * This software is provided 'as-is', without any express or implied warranty.
  * For conditions of distribution and use, see accompanying LICENSE file.
@@ -19,7 +19,7 @@
 #include "./modules/r3d_texture.h"
 #include "./modules/r3d_target.h"
 #include "./modules/r3d_shader.h"
-#include "./modules/r3d_opengl.h"
+#include "./modules/r3d_driver.h"
 #include "./modules/r3d_light.h"
 #include "./modules/r3d_draw.h"
 #include "./modules/r3d_env.h"
@@ -35,7 +35,7 @@ struct r3d_core_state R3D;
 // PUBLIC API
 // ========================================
 
-void R3D_Init(int resWidth, int resHeight)
+bool R3D_Init(int resWidth, int resHeight)
 {
     memset(&R3D, 0, sizeof(R3D));
 
@@ -59,16 +59,17 @@ void R3D_Init(int resWidth, int resHeight)
     R3D.colorSpace = R3D_COLORSPACE_SRGB;
     R3D.layers = R3D_LAYER_ALL;
 
-    r3d_texture_init();
-    r3d_target_init(resWidth, resHeight);
-    r3d_shader_init();
-    r3d_opengl_init();
-    r3d_light_init();
-    r3d_draw_init();
-    r3d_env_init();
+    if (!r3d_texture_init()) { R3D_TRACELOG(LOG_ERROR, "Failed to init texture module"); return false; }
+    if (!r3d_target_init(resWidth, resHeight)) { R3D_TRACELOG(LOG_ERROR, "Failed to init target module"); return false; }
+    if (!r3d_shader_init()) { R3D_TRACELOG(LOG_ERROR, "Failed to init shader module"); return false; }
+    if (!r3d_driver_init()) { R3D_TRACELOG(LOG_ERROR, "Failed to init driver module"); return false; }
+    if (!r3d_light_init()) { R3D_TRACELOG(LOG_ERROR, "Failed to init light module"); return false; }
+    if (!r3d_draw_init()) { R3D_TRACELOG(LOG_ERROR, "Failed to init draw module"); return false; }
+    if (!r3d_env_init()) { R3D_TRACELOG(LOG_ERROR, "Failed to init env module"); return false; }
 
-    // Defines suitable clipping plane distances for r3d
-    rlSetClipPlanes(0.05f, 4000.0f);
+    R3D_TRACELOG(LOG_INFO, "Initialized successfully (%dx%d)", resWidth, resHeight);
+
+    return true;
 }
 
 void R3D_Close(void)
@@ -76,7 +77,7 @@ void R3D_Close(void)
     r3d_texture_quit();
     r3d_target_quit();
     r3d_shader_quit();
-    r3d_opengl_quit();
+    r3d_driver_quit();
     r3d_light_quit();
     r3d_draw_quit();
     r3d_env_quit();

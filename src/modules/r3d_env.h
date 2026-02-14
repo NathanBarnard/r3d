@@ -1,6 +1,6 @@
 /* r3d_env.h -- Internal R3D environment module.
  *
- * Copyright (c) 2025 Le Juez Victor
+ * Copyright (c) 2025-2026 Le Juez Victor
  *
  * This software is provided 'as-is', without any express or implied warranty.
  * For conditions of distribution and use, see accompanying LICENSE file.
@@ -40,8 +40,9 @@ typedef struct {
 typedef struct {
     r3d_env_probe_state_t state;
     r3d_frustum_t frustum[6];
-    Matrix view[6];
-    Matrix proj[6];
+    Matrix viewProj[6];
+    Matrix invView[6];
+    Matrix invProj;
 
     R3D_ProbeFlags flags;
     int irradiance;     // Layer index, -1 if unused
@@ -127,8 +128,8 @@ bool r3d_env_probe_has(r3d_env_probe_array_enum_t array);
 /* Iterator for probes by category (stateful, not thread-safe) */
 bool r3d_env_probe_iter(r3d_env_probe_t** probe, r3d_env_probe_array_enum_t array);
 
-/* Update all probes and collect visible ones */
-void r3d_env_probe_update_and_cull(const r3d_frustum_t* viewFrustum);
+/* Update probe states and collect visible ones (can indicate if probes influcences are visible) */
+void r3d_env_probe_update_and_cull(const r3d_frustum_t* viewFrustum, bool* hasVisibleProbes);
 
 /* Check if probe should be rendered (updates state if willBeUpdated is true) */
 bool r3d_env_probe_should_be_updated(r3d_env_probe_t* probe, bool willBeUpdated);

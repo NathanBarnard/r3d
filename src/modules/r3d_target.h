@@ -1,6 +1,6 @@
 /* r3d_target.h -- Internal R3D render target module.
  *
- * Copyright (c) 2025 Le Juez Victor
+ * Copyright (c) 2025-2026 Le Juez Victor
  *
  * This software is provided 'as-is', without any express or implied warranty.
  * For conditions of distribution and use, see accompanying LICENSE file.
@@ -29,7 +29,7 @@ typedef enum {
     R3D_TARGET_ORM,             //< Full - Mip 2 - RGB[8|8|8]
     R3D_TARGET_DEPTH,           //< Full - Mip 2 - R[16]
     R3D_TARGET_DIFFUSE,         //< Full - Mip 2 - RGB[16|16|16]
-    R3D_TARGET_SPECULAR,        //< Full - Mip 1 - RGB[16|16|16]
+    R3D_TARGET_SPECULAR,        //< Full - Mip 2 - RGB[16|16|16]
     R3D_TARGET_GEOM_NORMAL,     //< Full - Mip 1 - RG[16|16]
     R3D_TARGET_SSAO_0,          //< Half - Mip 1 - R[8]
     R3D_TARGET_SSAO_1,          //< Half - Mip 1 - R[8]
@@ -37,6 +37,9 @@ typedef enum {
     R3D_TARGET_SSIL_1,          //< Half - Mip 1 - RGBA[16|16|16|16]
     R3D_TARGET_SSIL_2,          //< Half - Mip 1 - RGBA[16|16|16|16]
     R3D_TARGET_SSR,             //< Half - Mip N - RGBA[16|16|16|16]
+    R3D_TARGET_DOF_COC,         //< Full - Mip 1 - R[16]
+    R3D_TARGET_DOF_0,           //< Half - Mip 1 - RGBA[16|16|16|16]
+    R3D_TARGET_DOF_1,           //< Half - Mip 1 - RGBA[16|16|16|16]
     R3D_TARGET_BLOOM,           //< Half - Mip N - RGB[16|16|16]
     R3D_TARGET_SCENE_0,         //< Full - Mip 1 - RGB[16|16|16]
     R3D_TARGET_SCENE_1,         //< Full - Mip 1 - RGB[16|16|16]
@@ -80,11 +83,9 @@ typedef enum {
 
 #define R3D_TARGET_WIDTH        R3D_MOD_TARGET.resW
 #define R3D_TARGET_HEIGHT       R3D_MOD_TARGET.resH
-#define R3D_TARGET_RESOLUTION   R3D_MOD_TARGET.resW, R3D_MOD_TARGET.resH
 
 #define R3D_TARGET_TEXEL_WIDTH  R3D_MOD_TARGET.txlW
 #define R3D_TARGET_TEXEL_HEIGHT R3D_MOD_TARGET.txlH
-#define R3D_TARGET_TEXEL_SIZE   R3D_MOD_TARGET.txlW, R3D_MOD_TARGET.txlH
 
 #define R3D_TARGET_CLEAR(depth, ...)                                    \
     r3d_target_clear(                                                   \
@@ -106,15 +107,6 @@ typedef enum {
         sizeof((r3d_target_t[]){ __VA_ARGS__ }) / sizeof(r3d_target_t), \
         (level), false                                                  \
     )
-
-/*
- * Binds the target, then swaps to the alternate SSAO target.
- * Modifies the target parameter to point to the other buffer.
- */
-#define R3D_TARGET_BIND_AND_SWAP_SSAO(target) do {                      \
-    R3D_TARGET_BIND(false, target);                                     \
-    target = r3d_target_swap_ssao(target);                              \
-} while(0)
 
 /*
  * Binds the target, then swaps to the alternate scene target.
@@ -160,7 +152,7 @@ typedef struct {
 extern struct r3d_mod_target {
 
     r3d_target_fbo_t fbo[R3D_TARGET_MAX_FRAMEBUFFERS];  //< FBO combination cache. FBOs are automatically generated as needed during bind
-    int currentFbo;                                     //< Cache index of currently bound FBO, -1 if none bound. Reset via `r3d_target_reset()`
+    int currentFbo;                                     //< Cache index of currently bound FBO, -1 if none bound. Reset via `r3d_target_invalidate_cache()`
     int fboCount;                                       //< Number of FBOs created
 
     r3d_target_state_t targetStates[R3D_TARGET_COUNT];  //< Array of target states
@@ -215,11 +207,6 @@ void r3d_target_get_texel_size(float* w, float* h, r3d_target_t target, int leve
 /*
  * Returns target '1' if target '0' is provided, otherwise returns target '0'.
  */
-r3d_target_t r3d_target_swap_ssao(r3d_target_t ssao);
-
-/*
- * Returns target '1' if target '0' is provided, otherwise returns target '0'.
- */
 r3d_target_t r3d_target_swap_scene(r3d_target_t scene);
 
 /*
@@ -256,6 +243,13 @@ void r3d_target_set_viewport(r3d_target_t target, int level);
 void r3d_target_set_write_level(int attachment, int level);
 
 /*
+ * Defines the sampling level of the target.
+ * This function locks the sampling to a single level.
+ * See `r3d_target_set_read_levels` for multi-level sampling.
+ */
+void r3d_target_set_read_level(r3d_target_t target, int level);
+
+/*
  * Defines the sampling levels of the target.
  * baseLevel defines the first level and maxLevel the last.
  * Asserts that the target has already been created/used and that the levels are valid.
@@ -276,11 +270,24 @@ void r3d_target_gen_mipmap(r3d_target_t target);
 GLuint r3d_target_get(r3d_target_t target);
 
 /*
+ * Returns the texture ID corresponding to the requested target and sampling level.
+ * Asserts that the requested target has been created and that the level is valid.
+ */
+GLuint r3d_target_get_level(r3d_target_t target, int level);
+
+/*
  * Returns the texture ID corresponding to the requested target with base and max levels configured.
  * Asserts that the requested target has been created and if the target enum is valid.
  * If not created yet, it means we never bound this target, so it would be empty.
  */
 GLuint r3d_target_get_levels(r3d_target_t target, int baseLevel, int maxLevel);
+
+/*
+ * Returns the texture ID corresponding to the requested target all levels configured to be sampled.
+ * Asserts that the requested target has been created and if the target enum is valid.
+ * If not created yet, it means we never bound this target, so it would be empty.
+ */
+GLuint r3d_target_get_all_levels(r3d_target_t target);
 
 /*
  * Returns the texture ID corresponding to the requested target.
@@ -295,8 +302,8 @@ GLuint r3d_target_get_or_null(r3d_target_t target);
 void r3d_target_blit(r3d_target_t target, bool depth, GLuint dstFbo, int dstX, int dstY, int dstW, int dstH, bool linear);
 
 /*
- * Reset the internal state cache as the FBO target currently binds.
+ * Invalidate the internal state cache as the FBO target currently binds.
  */
-void r3d_target_reset(void);
+void r3d_target_invalidate_cache(void);
 
 #endif // R3D_MODULE_TARGET_H

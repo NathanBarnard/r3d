@@ -1,6 +1,6 @@
 /* forward.frag -- Fragment shader used for forward shading
  *
- * Copyright (c) 2025 Le Juez Victor
+ * Copyright (c) 2025-2026 Le Juez Victor
  *
  * This software is provided 'as-is', without any express or implied warranty.
  * For conditions of distribution and use, see accompanying LICENSE file.
@@ -146,29 +146,30 @@ float ShadowOmni(int i, float cNdotL, mat2 diskRot)
     return shadow / float(SHADOW_SAMPLES);
 }
 
-/* === Main === */
+/* === User override === */
+
+#include "../include/user/scene.frag"
+
+/* === Main function === */
 
 void main()
 {
     /* Sample material maps */
 
-    vec4 albedo = vColor * texture(uAlbedoMap, vTexCoord);
-    vec3 emission = vEmission * texture(uEmissionMap, vTexCoord).rgb;
-    vec3 orm = texture(uOrmMap, vTexCoord).rgb;
+    SceneFragment(vTexCoord, vTBN, 0.0);
 
-    float occlusion = uOcclusion * orm.x;
-    float roughness = uRoughness * orm.y;
-    float metalness = uMetalness * orm.z;
-    float dielectric = (1.0 - metalness);
+    vec3 ORM = vec3(OCCLUSION, ROUGHNESS, METALNESS);
+    mat3 TBN = mat3(TANGENT, BITANGENT, NORMAL);
+    float dielectric = (1.0 - METALNESS);
 
     /* Compute F0 (reflectance at normal incidence) and diffuse coefficient */
 
-    vec3 F0 = PBR_ComputeF0(metalness, 0.5, albedo.rgb);
-    vec3 kD = dielectric * albedo.rgb;
+    vec3 F0 = PBR_ComputeF0(METALNESS, 0.5, ALBEDO);
+    vec3 kD = dielectric * ALBEDO;
 
     /* Sample normal and compute view direction vector */
 
-    vec3 N = normalize(vTBN * M_NormalScale(texture(uNormalMap, vTexCoord).rgb * 2.0 - 1.0, uNormalScale));
+    vec3 N = normalize(TBN * M_NormalScale(texture(uNormalMap, vTexCoord).rgb * 2.0 - 1.0, uNormalScale));
     if (!gl_FrontFacing) N = -N; // Flip for back facing triangles with double sided meshes
 
     vec3 V = normalize(uViewPosition - vPosition);
@@ -215,12 +216,12 @@ void main()
 
         /* Compute diffuse lighting */
 
-        vec3 diffLight = L_Diffuse(cLdotH, cNdotV, cNdotL, roughness);
+        vec3 diffLight = L_Diffuse(cLdotH, cNdotV, cNdotL, ROUGHNESS);
         diffLight *= lightColE * dielectric;
 
         /* Compute specular lighting */
 
-        vec3 specLight =  L_Specular(F0, cLdotH, cNdotH, cNdotV, cNdotL, roughness);
+        vec3 specLight =  L_Specular(F0, cLdotH, cNdotH, cNdotV, cNdotL, ROUGHNESS);
         specLight *= lightColE * light.specular;
 
         /*  Calculating a random rotation matrix for shadow debanding */
@@ -244,8 +245,7 @@ void main()
 
         /* Apply attenuation based on the distance from the light */
 
-        if (light.type != LIGHT_DIR)
-        {
+        if (light.type != LIGHT_DIR) {
             float dist = length(light.position - vPosition);
             float atten = 1.0 - clamp(dist / light.range, 0.0, 1.0);
             shadow *= atten * light.attenuation;
@@ -253,8 +253,7 @@ void main()
 
         /* Apply spotlight effect if the light is a spotlight */
 
-        if (light.type == LIGHT_SPOT)
-        {
+        if (light.type == LIGHT_SPOT) {
             float theta = dot(L, -light.direction);
             float epsilon = (light.innerCutOff - light.outerCutOff);
             shadow *= smoothstep(0.0, 1.0, (theta - light.outerCutOff) / epsilon);
@@ -269,13 +268,13 @@ void main()
     /* Compute ambient */
 
 #if defined(PROBE)
-    if (uProbeInterior) E_ComputeAmbientColor(diffuse, kD, occlusion);
-    else E_ComputeAmbientOnly(diffuse, specular, kD, orm, F0, vPosition, N, V, cNdotV);
+    if (uProbeInterior) E_ComputeAmbientColor(diffuse, kD, OCCLUSION);
+    else E_ComputeAmbientOnly(diffuse, specular, kD, ORM, F0, vPosition, N, V, cNdotV);
 #else
-    E_ComputeAmbientAndProbes(diffuse, specular, kD, orm, F0, vPosition, N, V, cNdotV);
+    E_ComputeAmbientAndProbes(diffuse, specular, kD, ORM, F0, vPosition, N, V, cNdotV);
 #endif
 
     /* Compute the final fragment color */
 
-    FragColor = vec4(albedo.rgb * diffuse + specular + emission, albedo.a);
+    FragColor = vec4(ALBEDO * diffuse + specular + EMISSION, ALPHA);
 }

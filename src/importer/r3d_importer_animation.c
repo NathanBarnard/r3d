@@ -1,12 +1,12 @@
 /* r3d_importer_animation.c -- Module to import animations from assimp scene.
  *
- * Copyright (c) 2025 Le Juez Victor
+ * Copyright (c) 2025-2026 Le Juez Victor
  *
  * This software is provided 'as-is', without any express or implied warranty.
  * For conditions of distribution and use, see accompanying LICENSE file.
  */
 
-#include "./r3d_importer.h"
+#include "./r3d_importer_internal.h"
 
 #include <assimp/anim.h>
 #include <r3d_config.h>
@@ -73,7 +73,7 @@ static bool load_quaternion_track(R3D_AnimationTrack* track, unsigned int count,
     return true;
 }
 
-static bool load_channel(R3D_AnimationChannel* channel, const r3d_importer_t* importer, const struct aiNodeAnim* aiChannel)
+static bool load_channel(R3D_AnimationChannel* channel, const R3D_Importer* importer, const struct aiNodeAnim* aiChannel)
 {
     if (!aiChannel) {
         R3D_TRACELOG(LOG_ERROR, "Invalid animation channel");
@@ -119,7 +119,7 @@ fail:
 // ANIMATION LOADING (INTERNAL)
 // ========================================
 
-static bool load_animation(R3D_Animation* animation, const r3d_importer_t* importer, const struct aiAnimation* aiAnim)
+static bool load_animation(R3D_Animation* animation, const R3D_Importer* importer, const struct aiAnimation* aiAnim)
 {
     // Basic validation
     if (!aiAnim || aiAnim->mNumChannels == 0) {
@@ -195,7 +195,7 @@ static bool load_animation(R3D_Animation* animation, const r3d_importer_t* impor
 // PUBLIC FUNCTIONS
 // ========================================
 
-bool r3d_importer_load_animations(const r3d_importer_t* importer, R3D_AnimationLib* animLib)
+bool r3d_importer_load_animations(const R3D_Importer* importer, R3D_AnimationLib* animLib)
 {
     if (!importer || !r3d_importer_is_valid(importer)) {
         R3D_TRACELOG(LOG_ERROR, "Invalid importer for animation loading");
@@ -243,8 +243,6 @@ bool r3d_importer_load_animations(const r3d_importer_t* importer, R3D_AnimationL
 
     animLib->animations = animations;
     animLib->count = successCount;
-
-    R3D_TRACELOG(LOG_INFO, "Loaded animation library with %d animations", successCount);
 
     return true;
 }

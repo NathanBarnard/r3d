@@ -1,12 +1,15 @@
 /* view.glsl -- Contains everything you need to manage transformations
  *
- * Copyright (c) 2025 Le Juez Victor
+ * Copyright (c) 2025-2026 Le Juez Victor
  *
  * This software is provided 'as-is', without any express or implied warranty.
  * For conditions of distribution and use, see accompanying LICENSE file.
  */
 
 #include "../math.glsl"
+
+#define V_PROJ_PERSP 0
+#define V_PROJ_ORTHO 1
 
 struct View {
     vec3 position;
@@ -15,6 +18,7 @@ struct View {
     mat4 proj;
     mat4 invProj;
     mat4 viewProj;
+    int projMode;
     float aspect;
     float near;
     float far;
@@ -27,13 +31,14 @@ layout(std140) uniform ViewBlock {
 vec3 V_GetViewPosition(vec2 texCoord, float linearDepth)
 {
     vec2 ndc = texCoord * 2.0 - 1.0;
-    float tanHalfFov = 1.0 / uView.proj[1][1];
 
-    vec3 viewRay = vec3(
-        ndc.x * tanHalfFov * uView.aspect,
-        ndc.y * tanHalfFov,
-        -1.0
-    );
+    if (uView.projMode == V_PROJ_ORTHO) {
+        vec2 xyScale = vec2(1.0 / uView.proj[0][0], 1.0 / uView.proj[1][1]);
+        return vec3(ndc * xyScale, -linearDepth);
+    }
+
+    float tanHalfFov = 1.0 / uView.proj[1][1];
+    vec3 viewRay = vec3(ndc.x * tanHalfFov * uView.aspect, ndc.y * tanHalfFov, -1.0);
 
     return viewRay * linearDepth;
 }
@@ -130,17 +135,24 @@ bool V_OffScreen(vec2 texCoord)
 
 float V_LinearizeDepth(float depth)
 {
-    float near = uView.near;
-    float far = uView.far;
+    if (uView.projMode == V_PROJ_ORTHO) {
+        return uView.near + depth * (uView.far - uView.near);
+    }
 
+    // Perspective
+    float near = uView.near, far = uView.far;
     return (2.0 * near * far) / (far + near - (depth * 2.0 - 1.0) * (far - near));
 }
 
 float V_LinearizeDepth01(float depth)
 {
-    float near = uView.near;
-    float far = uView.far;
+    if (uView.projMode == V_PROJ_ORTHO) {
+        return depth;
+    }
 
+    // Perspective
+    float near = uView.near, far = uView.far;
     float z = (2.0 * near * far) / (far + near - (depth * 2.0 - 1.0) * (far - near));
+
     return (z - near) / (far - near);
 }

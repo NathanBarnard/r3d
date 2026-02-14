@@ -1,17 +1,18 @@
 /* r3d_animation.c -- R3D Animation Module.
  *
- * Copyright (c) 2025 Le Juez Victor
+ * Copyright (c) 2025-2026 Le Juez Victor
  *
  * This software is provided 'as-is', without any express or implied warranty.
  * For conditions of distribution and use, see accompanying LICENSE file.
  */
 
 #include <r3d/r3d_animation.h>
+#include <r3d_config.h>
 #include <raymath.h>
 #include <string.h>
 #include <glad.h>
 
-#include "./importer/r3d_importer.h"
+#include "./importer/r3d_importer_internal.h"
 
 // ========================================
 // PUBLIC API
@@ -19,30 +20,41 @@
 
 R3D_AnimationLib R3D_LoadAnimationLib(const char* filePath)
 {
-    R3D_AnimationLib animLib = {0};
+    R3D_Importer* importer = R3D_LoadImporter(filePath, 0);
+    if (importer == NULL) return (R3D_AnimationLib) {0};
 
-    r3d_importer_t importer = {0};
-    if (!r3d_importer_create_from_file(&importer, filePath)) {
-        return animLib;
-    }
-
-    r3d_importer_load_animations(&importer, &animLib);
-    r3d_importer_destroy(&importer);
+    R3D_AnimationLib animLib = R3D_LoadAnimationLibFromImporter(importer);
+    R3D_UnloadImporter(importer);
 
     return animLib;
 }
 
 R3D_AnimationLib R3D_LoadAnimationLibFromMemory(const void* data, unsigned int size, const char* hint)
 {
+    R3D_Importer* importer = R3D_LoadImporterFromMemory(data, size, hint, 0);
+    if (importer == NULL) return (R3D_AnimationLib) {0};
+
+    R3D_AnimationLib animLib = R3D_LoadAnimationLibFromImporter(importer);
+    R3D_UnloadImporter(importer);
+
+    return animLib;
+}
+
+R3D_AnimationLib R3D_LoadAnimationLibFromImporter(const R3D_Importer* importer)
+{
     R3D_AnimationLib animLib = {0};
 
-    r3d_importer_t importer = {0};
-    if (!r3d_importer_create_from_memory(&importer, data, size, hint)) {
+    if (!importer) {
+        R3D_TRACELOG(LOG_ERROR, "Cannot load animation library from NULL importer");
         return animLib;
     }
 
-    r3d_importer_load_animations(&importer, &animLib);
-    r3d_importer_destroy(&importer);
+    if (r3d_importer_load_animations(importer, &animLib)) {
+        R3D_TRACELOG(LOG_INFO, "Animation library loaded successfully (%d animations): '%s'", animLib.count, importer->name);
+    }
+    else {
+        R3D_TRACELOG(LOG_WARNING, "Failed to load animation library: '%s'", importer->name);
+    }
 
     return animLib;
 }

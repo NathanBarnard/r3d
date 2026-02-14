@@ -1,12 +1,12 @@
 /* r3d_importer_skeleton.c -- Module to import skeleton from assimp scene.
  *
- * Copyright (c) 2025 Le Juez Victor
+ * Copyright (c) 2025-2026 Le Juez Victor
  *
  * This software is provided 'as-is', without any express or implied warranty.
  * For conditions of distribution and use, see accompanying LICENSE file.
  */
 
-#include "./r3d_importer.h"
+#include "./r3d_importer_internal.h"
 
 #include <assimp/mesh.h>
 #include <r3d_config.h>
@@ -21,7 +21,7 @@
 // ========================================
 
 typedef struct {
-    const r3d_importer_t* importer;
+    const R3D_Importer* importer;
     R3D_BoneInfo* bones;
     Matrix* invBind;
     Matrix* localBind;
@@ -98,7 +98,7 @@ static void upload_skeleton_bind_pose(R3D_Skeleton* skeleton)
 // PUBLIC FUNCTIONS
 // ========================================
 
-bool r3d_importer_load_skeleton(const r3d_importer_t* importer, R3D_Skeleton* skeleton)
+bool r3d_importer_load_skeleton(const R3D_Importer* importer, R3D_Skeleton* skeleton)
 {
     if (!importer || !r3d_importer_is_valid(importer)) {
         R3D_TRACELOG(LOG_ERROR, "Invalid importer for skeleton processing");
@@ -160,8 +160,6 @@ bool r3d_importer_load_skeleton(const r3d_importer_t* importer, R3D_Skeleton* sk
 
     build_skeleton_recursive(&ctx, r3d_importer_get_root(importer), R3D_MATRIX_IDENTITY, -1);
     upload_skeleton_bind_pose(skeleton);
-
-    R3D_TRACELOG(LOG_INFO, "Loaded skeleton with %d bones", boneCount);
 
     return true;
 }

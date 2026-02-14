@@ -1,6 +1,6 @@
 /* env.glsl -- Contains everything you need to manage environment
  *
- * Copyright (c) 2025 Le Juez Victor
+ * Copyright (c) 2025-2026 Le Juez Victor
  *
  * This software is provided 'as-is', without any express or implied warranty.
  * For conditions of distribution and use, see accompanying LICENSE file.
@@ -79,7 +79,8 @@ void IBL_MultiScattering(inout vec3 irradiance, inout vec3 radiance, vec3 diffus
     float Ess = brdf.x + brdf.y;
     float Ems = 1.0 - Ess;
     vec3 Favg = F0 + (1.0 - F0) / 21.0;
-    vec3 Fms = FssEss * Favg / (1.0 - (1.0 - Ess) * Favg);
+    vec3 FmsD = max(1.0 - (1.0 - Ess) * Favg, vec3(1e-6)); //< avoids division by zero in extreme F0/low roughness cases
+    vec3 Fms = FssEss * Favg / FmsD;
     vec3 kD = diffuse * (1.0 - FssEss);
 
     // Compute final irradiance / radiance
@@ -110,13 +111,16 @@ void IBL_SampleProbe(inout vec3 irr, inout vec3 rad, inout float wIrr, inout flo
 
 /* === Environment Functions === */
 
-void E_ComputeAmbientAndProbes(inout vec3 irradiance, inout vec3 radiance, vec3 diffuse, vec3 orm, vec3 F0, vec3 P, vec3 N, vec3 V, float NdotV)
+void E_ComputeAmbientAndProbes(inout vec3 diffuse, inout vec3 specular, vec3 kD, vec3 orm, vec3 F0, vec3 P, vec3 N, vec3 V, float NdotV)
 {
     float occlusion = orm.x;
     float roughness = orm.y;
     float metalness = orm.z;
 
+    vec3 irradiance = vec3(0.0);
     float wIrradiance = 0.0;
+
+    vec3 radiance = vec3(0.0);
     float wRadiance = 0.0;
 
     for (int i = 0; i < uNumProbes; ++i) {
@@ -151,36 +155,37 @@ void E_ComputeAmbientAndProbes(inout vec3 irradiance, inout vec3 radiance, vec3 
     radiance *= IBL_GetSpecularOcclusion(NdotV, occlusion, roughness);
 
     vec2 brdf = texture(uBrdfLutTex, vec2(NdotV, roughness)).xy;
-    IBL_MultiScattering(irradiance, radiance, diffuse, F0, brdf, NdotV, roughness);
+    IBL_MultiScattering(irradiance, radiance, kD, F0, brdf, NdotV, roughness);
+
+    diffuse += irradiance;
+    specular += radiance;
 }
 
-void E_ComputeAmbientOnly(inout vec3 irradiance, inout vec3 radiance, vec3 diffuse, vec3 orm, vec3 F0, vec3 P, vec3 N, vec3 V, float NdotV)
+void E_ComputeAmbientOnly(inout vec3 diffuse, inout vec3 specular, vec3 kD, vec3 orm, vec3 F0, vec3 P, vec3 N, vec3 V, float NdotV)
 {
     float occlusion = orm.x;
     float roughness = orm.y;
     float metalness = orm.z;
 
-    if (uAmbient.irradiance >= 0) {
-        vec3 ambientIrr = IBL_SampleIrradiance(uIrradianceTex, uAmbient.irradiance, N, uAmbient.rotation);
-        irradiance += ambientIrr.rgb;
-    }
-    else {
-        irradiance += uAmbient.color.rgb;
-    }
-
-    if (uAmbient.prefilter >= 0) {
-        vec3 ambientRad = IBL_SamplePrefilter(uPrefilterTex, uAmbient.prefilter, V, N, uAmbient.rotation, roughness);
-        radiance += ambientRad.rgb;
-    }
-
+    vec3 irradiance = (uAmbient.irradiance >= 0)
+        ? IBL_SampleIrradiance(uIrradianceTex, uAmbient.irradiance, N, uAmbient.rotation).rgb
+        : uAmbient.color.rgb;
     irradiance *= occlusion * uAmbient.energy;
-    radiance *= IBL_GetSpecularOcclusion(NdotV, occlusion, roughness);
+
+    vec3 radiance = vec3(0.0);
+    if (uAmbient.prefilter >= 0) {
+        radiance = IBL_SamplePrefilter(uPrefilterTex, uAmbient.prefilter, V, N, uAmbient.rotation, roughness).rgb;
+        radiance *= IBL_GetSpecularOcclusion(NdotV, occlusion, roughness);
+    }
 
     vec2 brdf = texture(uBrdfLutTex, vec2(NdotV, roughness)).xy;
-    IBL_MultiScattering(irradiance, radiance, diffuse, F0, brdf, NdotV, roughness);
+    IBL_MultiScattering(irradiance, radiance, kD, F0, brdf, NdotV, roughness);
+
+    diffuse += irradiance;
+    specular += radiance;
 }
 
-void E_ComputeAmbientColor(inout vec3 irradiance, vec3 diffuse, float occlusion)
+void E_ComputeAmbientColor(inout vec3 diffuse, vec3 kD, float occlusion)
 {
-    irradiance += diffuse * uAmbient.color.rgb * uAmbient.energy * occlusion;
+    diffuse += kD * uAmbient.color.rgb * uAmbient.energy * occlusion;
 }

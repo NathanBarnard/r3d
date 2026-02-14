@@ -1,6 +1,6 @@
 /* r3d_instance.c -- R3D Instance Module.
  *
- * Copyright (c) 2025 Le Juez Victor
+ * Copyright (c) 2025-2026 Le Juez Victor
  *
  * This software is provided 'as-is', without any express or implied warranty.
  * For conditions of distribution and use, see accompanying LICENSE file.
@@ -22,7 +22,8 @@ static const size_t INSTANCE_ATTRIBUTE_SIZE[R3D_INSTANCE_ATTRIBUTE_COUNT] = {
     /* POSITION */  sizeof(Vector3),
     /* ROTATION */  sizeof(Quaternion),
     /* SCALE    */  sizeof(Vector3),
-    /* COLOR    */  sizeof(Color)
+    /* COLOR    */  sizeof(Color),
+    /* CUSTOM   */  sizeof(Vector4),
 };
 
 // ========================================
@@ -47,6 +48,8 @@ R3D_InstanceBuffer R3D_LoadInstanceBuffer(int capacity, R3D_InstanceFlags flags)
     buffer.capacity = capacity;
     buffer.flags = flags;
 
+    R3D_TRACELOG(LOG_INFO, "Instance buffer created successfully (capacity=%d | flags=0x%04x)", capacity, flags);
+
     return buffer;
 }
 
@@ -59,12 +62,12 @@ void R3D_UploadInstances(R3D_InstanceBuffer buffer, R3D_InstanceFlags flag, int 
 {
     int index = r3d_lsb_index(flag);
     if (index < 0 || index >= R3D_INSTANCE_ATTRIBUTE_COUNT) {
-        R3D_TRACELOG(LOG_WARNING, "UploadInstances -> invalid attribute flag (0x%X)", flag);
+        R3D_TRACELOG(LOG_WARNING, "UploadInstances -> invalid attribute flag (0x%04x)", flag);
         return;
     }
 
     if (!BIT_TEST(buffer.flags, flag)) {
-        R3D_TRACELOG(LOG_WARNING, "UploadInstances -> attribute not allocated for this buffer (flag=0x%X)", flag);
+        R3D_TRACELOG(LOG_WARNING, "UploadInstances -> attribute not allocated for this buffer (flag=0x%04x)", flag);
         return;
     }
 
@@ -73,7 +76,7 @@ void R3D_UploadInstances(R3D_InstanceBuffer buffer, R3D_InstanceFlags flag, int 
         return;
     }
 
-    int attrSize = INSTANCE_ATTRIBUTE_SIZE[index];
+    int attrSize = (int)INSTANCE_ATTRIBUTE_SIZE[index];
 
     glBindBuffer(GL_ARRAY_BUFFER, buffer.buffers[index]);
     glBufferSubData(GL_ARRAY_BUFFER, offset * attrSize, count * attrSize, data);
@@ -84,19 +87,19 @@ void* R3D_MapInstances(R3D_InstanceBuffer buffer, R3D_InstanceFlags flag)
 {
     int index = r3d_lsb_index(flag);
     if (index < 0 || index >= R3D_INSTANCE_ATTRIBUTE_COUNT) {
-        R3D_TRACELOG(LOG_WARNING, "MapInstances -> invalid attribute flag (0x%X)", flag);
+        R3D_TRACELOG(LOG_WARNING, "MapInstances -> invalid attribute flag (0x%04x)", flag);
         return NULL;
     }
 
     if (!BIT_TEST(buffer.flags, flag)) {
-        R3D_TRACELOG(LOG_WARNING, "MapInstances -> attribute not allocated for this buffer (flag=0x%X)", flag);
+        R3D_TRACELOG(LOG_WARNING, "MapInstances -> attribute not allocated for this buffer (flag=0x%04x)", flag);
         return NULL;
     }
 
     glBindBuffer(GL_ARRAY_BUFFER, buffer.buffers[index]);
     void* ptrMap = glMapBuffer(GL_ARRAY_BUFFER, GL_WRITE_ONLY);
     if (!ptrMap) {
-        R3D_TRACELOG(LOG_WARNING, "MapInstances -> failed to map GPU buffer (flag=0x%X)", flag);
+        R3D_TRACELOG(LOG_WARNING, "MapInstances -> failed to map GPU buffer (flag=0x%04x)", flag);
     }
     glBindBuffer(GL_ARRAY_BUFFER, 0);
 

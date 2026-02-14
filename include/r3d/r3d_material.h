@@ -1,6 +1,6 @@
 /* r3d_material.h -- R3D Material Module.
  *
- * Copyright (c) 2025 Le Juez Victor
+ * Copyright (c) 2025-2026 Le Juez Victor
  *
  * This software is provided 'as-is', without any express or implied warranty.
  * For conditions of distribution and use, see accompanying LICENSE file.
@@ -9,8 +9,10 @@
 #ifndef R3D_MATERIAL_H
 #define R3D_MATERIAL_H
 
+#include "./r3d_surface_shader.h"
 #include "./r3d_platform.h"
 #include <raylib.h>
+#include <stdint.h>
 
 /**
  * @defgroup Material
@@ -48,31 +50,35 @@
             .roughness = 1.0f,                          \
             .metalness = 0.0f,                          \
         },                                              \
+        .uvOffset = {0.0f, 0.0f},                       \
+        .uvScale = {1.0f, 1.0f},                        \
+        .alphaCutoff = 0.01f,                           \
+        .depth = {                                      \
+            .mode = R3D_COMPARE_LESS,                   \
+            .offsetFactor = 0.0f,                       \
+            .offsetUnits = 0.0f,                        \
+            .rangeNear = 0.0f,                          \
+            .rangeFar = 1.0f,                           \
+        },                                              \
+        .stencil = {                                    \
+            .mode = R3D_COMPARE_ALWAYS,                 \
+            .ref = 0x00,                                \
+            .mask = 0xFF,                               \
+            .opFail = R3D_STENCIL_KEEP,                 \
+            .opZFail = R3D_STENCIL_KEEP,                \
+            .opPass = R3D_STENCIL_REPLACE,              \
+        },                                              \
         .transparencyMode = R3D_TRANSPARENCY_DISABLED,  \
         .billboardMode = R3D_BILLBOARD_DISABLED,        \
         .blendMode = R3D_BLEND_MIX,                     \
         .cullMode = R3D_CULL_BACK,                      \
-        .uvOffset = {0.0f, 0.0f},                       \
-        .uvScale = {1.0f, 1.0f},                        \
-        .alphaCutoff = 0.01f                            \
+        .unlit = false,                                 \
+        .shader = 0,                                    \
     }
 
 // ========================================
 // ENUMS TYPES
 // ========================================
-
-/**
- * @brief Billboard modes.
- *
- * This enumeration defines how a 3D object aligns itself relative to the camera.
- * It provides options to disable billboarding or to enable specific modes of alignment.
- */
-typedef enum R3D_BillboardMode {
-    R3D_BILLBOARD_DISABLED,         ///< Billboarding is disabled; the object retains its original orientation.
-    R3D_BILLBOARD_FRONT,            ///< Full billboarding; the object fully faces the camera, rotating on all axes.
-    R3D_BILLBOARD_Y_AXIS            /**< Y-axis constrained billboarding; the object rotates only around the Y-axis,
-                                         keeping its "up" orientation fixed. This is suitable for upright objects like characters or signs. */
-} R3D_BillboardMode;
 
 /**
  * @brief Transparency modes.
@@ -88,6 +94,19 @@ typedef enum R3D_TransparencyMode {
 } R3D_TransparencyMode;
 
 /**
+ * @brief Billboard modes.
+ *
+ * This enumeration defines how a 3D object aligns itself relative to the camera.
+ * It provides options to disable billboarding or to enable specific modes of alignment.
+ */
+typedef enum R3D_BillboardMode {
+    R3D_BILLBOARD_DISABLED,         ///< Billboarding is disabled; the object retains its original orientation.
+    R3D_BILLBOARD_FRONT,            ///< Full billboarding; the object fully faces the camera, rotating on all axes.
+    R3D_BILLBOARD_Y_AXIS            /**< Y-axis constrained billboarding; the object rotates only around the Y-axis,
+                                         keeping its "up" orientation fixed. This is suitable for upright objects like characters or signs. */
+} R3D_BillboardMode;
+
+/**
  * @brief Blend modes.
  *
  * Defines common blending modes used in 3D rendering to combine source and destination colors.
@@ -101,14 +120,44 @@ typedef enum R3D_BlendMode {
 } R3D_BlendMode;
 
 /**
+ * @brief Comparison modes.
+ *
+ * Defines how fragments are tested against the depth/stencil buffer during rendering.
+ * @note The depth/stencil comparison mode affects both forward and deferred rendering passes.
+ */
+typedef enum R3D_CompareMode {
+    R3D_COMPARE_LESS,       ///< Passes if 'value' <  'buffer' (default)
+    R3D_COMPARE_LEQUAL,     ///< Passes if 'value' <= 'buffer'
+    R3D_COMPARE_EQUAL,      ///< Passes if 'value' == 'buffer'
+    R3D_COMPARE_GREATER,    ///< Passes if 'value' >  'buffer'
+    R3D_COMPARE_GEQUAL,     ///< Passes if 'value' >= 'buffer'
+    R3D_COMPARE_NOTEQUAL,   ///< Passes if 'value' != 'buffer'
+    R3D_COMPARE_ALWAYS,     ///< Always passes
+    R3D_COMPARE_NEVER       ///< Never passes
+} R3D_CompareMode;
+
+/**
+ * @brief Stencil buffer operations.
+ *
+ * Defines how the stencil buffer value is modified based on test results.
+ */
+typedef enum R3D_StencilOp {
+    R3D_STENCIL_KEEP,      ///< Keep the current stencil value
+    R3D_STENCIL_ZERO,      ///< Set stencil value to 0
+    R3D_STENCIL_REPLACE,   ///< Replace with reference value
+    R3D_STENCIL_INCR,      ///< Increment stencil value (clamped)
+    R3D_STENCIL_DECR       ///< Decrement stencil value (clamped)
+} R3D_StencilOp;
+
+/**
  * @brief Face culling modes.
  *
  * Specifies which faces of a geometry are discarded during rendering based on their winding order.
  */
 typedef enum R3D_CullMode {
-    R3D_CULL_NONE,              ///< No culling; all faces are rendered.
-    R3D_CULL_BACK,              ///< Cull back-facing polygons (faces with clockwise winding order).
-    R3D_CULL_FRONT              ///< Cull front-facing polygons (faces with counter-clockwise winding order).
+    R3D_CULL_NONE,          ///< No culling; all faces are rendered.
+    R3D_CULL_BACK,          ///< Cull back-facing polygons (faces with clockwise winding order).
+    R3D_CULL_FRONT          ///< Cull front-facing polygons (faces with counter-clockwise winding order).
 } R3D_CullMode;
 
 // ========================================
@@ -159,26 +208,64 @@ typedef struct R3D_OrmMap {
 } R3D_OrmMap;
 
 /**
+ * @brief Depth buffer state configuration.
+ *
+ * Controls how fragments interact with the depth buffer during rendering..
+ *
+ * @note This structure does not directly control depth buffer writes for technical reasons.
+ *       To render objects without writing to the depth buffer, use alpha blending mode instead.
+ */
+typedef struct R3D_DepthState {
+    R3D_CompareMode mode;   ///< Comparison function for depth test (default: LESS)
+    float offsetFactor;     ///< Scales the maximum depth slope for polygon offset (default: 0.0f)
+    float offsetUnits;      ///< Constant depth offset value (default: 0.0f)
+    float rangeNear;        ///< Near clipping plane for depth range mapping (default: 0.0f)
+    float rangeFar;         ///< Far clipping plane for depth range mapping (default: 1.0f)
+} R3D_DepthState;
+
+/**
+ * @brief Stencil buffer state configuration.
+ *
+ * Controls how fragments interact with the stencil buffer during rendering.
+ * The stencil buffer can be used for effects like x-ray vision, outlines,
+ * portals, and masking.
+ */
+typedef struct R3D_StencilState {
+    R3D_CompareMode mode;   ///< Comparison function for stencil test (default: ALWAYS)
+    uint8_t ref;            ///< Reference value (0-255) for comparison and replace operations (default: 0x00)
+    uint8_t mask;           ///< Bit mask applied to both reference and stencil values during comparison (default: 0xFF)
+    R3D_StencilOp opFail;   ///< Operation when stencil test fails (default: KEEP)
+    R3D_StencilOp opZFail;  ///< Operation when stencil test passes but depth test fails (default: KEEP)
+    R3D_StencilOp opPass;   ///< Operation when both stencil and depth tests pass (default: REPLACE)
+} R3D_StencilState;
+
+/**
  * @brief Material definition.
  *
  * Combines multiple texture maps and rendering parameters for shading.
  */
 typedef struct R3D_Material {
 
-    R3D_AlbedoMap albedo;       ///< Albedo map
-    R3D_EmissionMap emission;   ///< Emission map
-    R3D_NormalMap normal;       ///< Normal map
-    R3D_OrmMap orm;             ///< Occlusion-Roughness-Metalness map
+    R3D_AlbedoMap albedo;                   ///< Albedo map
+    R3D_EmissionMap emission;               ///< Emission map
+    R3D_NormalMap normal;                   ///< Normal map
+    R3D_OrmMap orm;                         ///< Occlusion-Roughness-Metalness map
+
+    Vector2 uvOffset;                       ///< UV offset (default: {0.0f, 0.0f})
+    Vector2 uvScale;                        ///< UV scale (default: {1.0f, 1.0f})
+    float alphaCutoff;                      ///< Alpha cutoff threshold (default: 0.01f)
+
+    R3D_DepthState depth;                   ///< Depth test configuration (default: standard)
+    R3D_StencilState stencil;               ///< Stencil test configuration (default: disabled)
 
     R3D_TransparencyMode transparencyMode;  ///< Transparency mode (default: DISABLED)
     R3D_BillboardMode billboardMode;        ///< Billboard mode (default: DISABLED)
     R3D_BlendMode blendMode;                ///< Blend mode (default: MIX)
     R3D_CullMode cullMode;                  ///< Face culling mode (default: BACK)
 
-    Vector2 uvOffset;    ///< UV offset (default: {0.0f, 0.0f})
-    Vector2 uvScale;     ///< UV scale (default: {1.0f, 1.0f})
+    bool unlit;                             ///< If true, material does not participate in lighting (default: false)
 
-    float alphaCutoff;   ///< Alpha cutoff threshold (default: 0.01f)
+    R3D_SurfaceShader* shader;              ///< Custom shader applied to the material (default: NULL)
 
 } R3D_Material;
 

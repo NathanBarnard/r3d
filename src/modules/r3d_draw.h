@@ -1,6 +1,6 @@
 /* r3d_draw.h -- Internal R3D draw module.
  *
- * Copyright (c) 2025 Le Juez Victor
+ * Copyright (c) 2025-2026 Le Juez Victor
  *
  * This software is provided 'as-is', without any express or implied warranty.
  * For conditions of distribution and use, see accompanying LICENSE file.
@@ -24,6 +24,26 @@
 // ========================================
 
 /*
+ * A set of all lists that can be rendered in probe captures.
+ * May require check per draw call depending on the context.
+ */
+#define R3D_DRAW_PACKLIST_PROBE         \
+    R3D_DRAW_LIST_OPAQUE_INST,          \
+    R3D_DRAW_LIST_OPAQUE,               \
+    R3D_DRAW_LIST_TRANSPARENT_INST,     \
+    R3D_DRAW_LIST_TRANSPARENT
+
+/*
+ * A set of all lists that can be rendered in shadow maps.
+ * May require check per draw call depending on the context.
+ */
+#define R3D_DRAW_PACKLIST_SHADOW        \
+    R3D_DRAW_LIST_OPAQUE_INST,          \
+    R3D_DRAW_LIST_TRANSPARENT_INST,     \
+    R3D_DRAW_LIST_OPAQUE,               \
+    R3D_DRAW_LIST_TRANSPARENT
+
+/*
  * Iterate over multiple draw lists in the order specified by the variadic arguments,
  * yielding a pointer to each r3d_draw_call_t.
  *
@@ -42,9 +62,8 @@
              _i++, _keep = 1)                                                   \
             for (const r3d_draw_call_t* call =                                  \
                  &R3D_MOD_DRAW.calls[R3D_MOD_DRAW.list[_lists[_list_idx]].calls[_i]]; \
-                 _keep && (cond) && (!frustum || r3d_draw_call_is_visible(call, frustum)); \
+                 _keep && (cond) && (!(frustum) || r3d_draw_call_is_visible(call, (frustum))); \
                  _keep = 0)
-
 
 /*
  * glDrawArrays call on the 3-vertcies dummy VAO for screen-space rendering.
@@ -115,16 +134,14 @@ typedef enum {
  */
 typedef enum {
 
-    R3D_DRAW_LIST_DEFERRED,          //< Fully opaque
-    R3D_DRAW_LIST_PREPASS,           //< Forward but with depth prepass
-    R3D_DRAW_LIST_FORWARD,           //< Forward only, without prepass
+    R3D_DRAW_LIST_OPAQUE,
+    R3D_DRAW_LIST_TRANSPARENT,
     R3D_DRAW_LIST_DECAL,
 
     R3D_DRAW_LIST_NON_INST_COUNT,
 
-    R3D_DRAW_LIST_DEFERRED_INST = R3D_DRAW_LIST_NON_INST_COUNT,
-    R3D_DRAW_LIST_PREPASS_INST,
-    R3D_DRAW_LIST_FORWARD_INST,
+    R3D_DRAW_LIST_OPAQUE_INST = R3D_DRAW_LIST_NON_INST_COUNT,
+    R3D_DRAW_LIST_TRANSPARENT_INST,
     R3D_DRAW_LIST_DECAL_INST,
 
     R3D_DRAW_LIST_COUNT
@@ -178,9 +195,9 @@ typedef struct {
  * All draw calls pushed after a group inherit its transform, skeleton, and instancing data.
  */
 typedef struct {
-    BoundingBox aabb;               //< AABB of the model
-    Matrix transform;               //< World transform matrix
-    GLuint texPose;                 //< Texture that contains the bone matrices (can be 0 for non-skinned)
+    Matrix transform;               //< Model transformation matrix
+    BoundingBox aabb;               //< AABB of all drawables contained in the group
+    GLuint skinTexture;             //< Texture that contains the bone matrices (can be 0 for non-skinned)
     R3D_InstanceBuffer instances;   //< Instance buffer to use
     int instanceCount;              //< Number of instances
 } r3d_draw_group_t;
@@ -227,14 +244,18 @@ typedef struct {
 typedef struct {
     float distance;
     struct {
+        uintptr_t shader;
+        uint32_t shading;
         uint32_t albedo;
         uint32_t normal;
         uint32_t orm;
         uint32_t emission;
-        uint32_t blend;
-        uint32_t cull;
-        uint32_t transparency;
-        uint32_t billboard;
+        uint32_t stencil;
+        uint32_t depth;
+        uint8_t blend;
+        uint8_t cull;
+        uint8_t transparency;
+        uint8_t billboard;
     } material;
 } r3d_draw_sort_t;
 
@@ -266,6 +287,11 @@ extern struct r3d_draw {
     int numGroups;                                  //< Number of active draw groups
     int numCalls;                                   //< Number of active draw calls
     int capacity;                                   //< Allocated capacity for all arrays (in number of elements)
+
+    bool groupCulled;                               // Indicates if groups already culled (controls visibility reset)
+    bool hasDeferred;                               //< If there are any deferred calls (lit opaque)
+    bool hasPrepass;                                //< If there are any prepass calls (lit opaque / lit transparent)
+    bool hasForward;                                //< If there are any forward calls (unlit opaque / transparent)
 
 } R3D_MOD_DRAW;
 
@@ -326,11 +352,11 @@ r3d_draw_group_t* r3d_draw_get_call_group(const r3d_draw_call_t* call);
  * Builds the list of groups that are visible inside the given frustum.
  * Must be called before issuing visibility tests with the same frustum.
  */
-void r3d_draw_compute_visible_groups(const r3d_frustum_t* frustum);
+void r3d_draw_cull_groups(const r3d_frustum_t* frustum);
 
 /*
  * Returns true if the draw call is visible within the given frustum.
- * Uses both per-call culling and the results produced by `r3d_draw_compute_visible_groups()`
+ * Uses both per-call culling and the results produced by `r3d_draw_cull_groups()`
  * Make sure to compute visible groups with the same frustum before calling this function.
  */
 bool r3d_draw_call_is_visible(const r3d_draw_call_t* call, const r3d_frustum_t* frustum);
@@ -339,23 +365,6 @@ bool r3d_draw_call_is_visible(const r3d_draw_call_t* call, const r3d_frustum_t* 
  * Sort a draw list according to the given mode and camera position.
  */
 void r3d_draw_sort_list(r3d_draw_list_enum_t list, Vector3 viewPosition, r3d_draw_sort_enum_t mode);
-
-/*
- * Apply the OpenGL face culling state for a draw call.
- */
-void r3d_draw_apply_cull_mode(R3D_CullMode mode);
-
-/*
- * Applies the OpenGL blend function for the current draw call.
- * Assumes GL_BLEND is already enabled and only sets the blend equations.
- * The MIX blend mode always uses standard alpha blending.
- */
-void r3d_draw_apply_blend_mode(R3D_BlendMode blend, R3D_TransparencyMode transparency);
-
-/*
- * Configure face culling for shadow rendering depending on shadow casting mode.
- */
-void r3d_draw_apply_shadow_cast_mode(R3D_ShadowCastMode castMode, R3D_CullMode cullMode);
 
 /*
  * Issue a non-instanced draw call.
@@ -393,9 +402,7 @@ static inline bool r3d_draw_has_instances(const r3d_draw_group_t* group)
  */
 static inline bool r3d_draw_has_deferred(void)
 {
-    return
-        (R3D_MOD_DRAW.list[R3D_DRAW_LIST_DEFERRED].numCalls > 0) ||
-        (R3D_MOD_DRAW.list[R3D_DRAW_LIST_DEFERRED_INST].numCalls > 0);
+    return R3D_MOD_DRAW.hasDeferred;
 }
 
 /*
@@ -404,9 +411,7 @@ static inline bool r3d_draw_has_deferred(void)
  */
 static inline bool r3d_draw_has_prepass(void)
 {
-    return
-        (R3D_MOD_DRAW.list[R3D_DRAW_LIST_PREPASS].numCalls > 0) ||
-        (R3D_MOD_DRAW.list[R3D_DRAW_LIST_PREPASS_INST].numCalls > 0);
+    return R3D_MOD_DRAW.hasPrepass;
 }
 
 /*
@@ -415,9 +420,7 @@ static inline bool r3d_draw_has_prepass(void)
  */
 static inline bool r3d_draw_has_forward(void)
 {
-    return
-        (R3D_MOD_DRAW.list[R3D_DRAW_LIST_FORWARD].numCalls > 0) ||
-        (R3D_MOD_DRAW.list[R3D_DRAW_LIST_FORWARD_INST].numCalls > 0);
+    return R3D_MOD_DRAW.hasForward;
 }
 
 /*
@@ -429,6 +432,80 @@ static inline bool r3d_draw_has_decal(void)
     return
         (R3D_MOD_DRAW.list[R3D_DRAW_LIST_DECAL].numCalls > 0) ||
         (R3D_MOD_DRAW.list[R3D_DRAW_LIST_DECAL_INST].numCalls > 0);
+}
+
+/*
+ * Indicates whether a draw call corresponds to a decal.
+ */
+static inline bool r3d_draw_is_decal(const r3d_draw_call_t* call)
+{
+    return call->type == R3D_DRAW_CALL_DECAL;
+}
+
+/*
+ * Indicates whether a draw call corresponds to an object that is only rendered in deferred.
+ * Always check if an object is prepassed before checking if it is deferred.
+ */
+static inline bool r3d_draw_is_deferred(const r3d_draw_call_t* call)
+{
+    if (call->type != R3D_DRAW_CALL_MESH) return false;
+    if (call->mesh.material.unlit) return false;
+
+    if (call->mesh.material.blendMode != R3D_BLEND_MIX) {
+        return false;
+    }
+
+    return call->mesh.material.transparencyMode == R3D_TRANSPARENCY_DISABLED;
+}
+
+/*
+ * Indicates whether a draw call corresponds to an opaque object (lit or unlit)
+ */
+static inline bool r3d_draw_is_opaque(const r3d_draw_call_t* call)
+{
+    if (call->type != R3D_DRAW_CALL_MESH) return false;
+
+    if (call->mesh.material.blendMode != R3D_BLEND_MIX) {
+        return false;
+    }
+
+    return call->mesh.material.transparencyMode == R3D_TRANSPARENCY_DISABLED;
+}
+
+/*
+ * Indicates whether a draw call corresponds to an illuminated object rendered in multiple passes (deferred / forward)
+ */
+static inline bool r3d_draw_is_prepass(const r3d_draw_call_t* call)
+{
+    if (call->type != R3D_DRAW_CALL_MESH) return false;
+    if (call->mesh.material.unlit) return false;
+
+    return call->mesh.material.transparencyMode == R3D_TRANSPARENCY_PREPASS;
+}
+
+/*
+ * Indicates whether a draw call corresponds to an object rendered only in forward (unlit opaque / transparent)
+ * Always check if an object is prepassed before checking if it is forwarded.
+ */
+static inline bool r3d_draw_is_forward(const r3d_draw_call_t* call)
+{
+    if (call->type != R3D_DRAW_CALL_MESH) return false;
+    if (call->mesh.material.unlit) return true;
+
+    if (call->mesh.material.blendMode != R3D_BLEND_MIX) {
+        return true;
+    }
+
+    return call->mesh.material.transparencyMode == R3D_TRANSPARENCY_ALPHA;
+}
+
+/*
+ * Indicates whether a draw call corresponds to an object that should be rendered in a shadow map.
+ */
+static inline bool r3d_draw_should_cast_shadow(const r3d_draw_call_t* call)
+{
+    return (call->mesh.material.transparencyMode == R3D_TRANSPARENCY_DISABLED) ||
+           (call->mesh.material.transparencyMode == R3D_TRANSPARENCY_PREPASS);
 }
 
 #endif // R3D_MODULE_DRAW_H

@@ -1,17 +1,18 @@
 /* r3d_skeleton.h -- R3D Skeleton Module.
  *
- * Copyright (c) 2025 Le Juez Victor
+ * Copyright (c) 2025-2026 Le Juez Victor
  *
  * This software is provided 'as-is', without any express or implied warranty.
  * For conditions of distribution and use, see accompanying LICENSE file.
  */
 
 #include <r3d/r3d_skeleton.h>
+#include <r3d_config.h>
 #include <stdlib.h>
 #include <stddef.h>
 #include <glad.h>
 
-#include "./importer/r3d_importer.h"
+#include "./importer/r3d_importer_internal.h"
 
 // ========================================
 // PUBLIC API
@@ -21,28 +22,43 @@ R3D_Skeleton R3D_LoadSkeleton(const char* filePath)
 {
     R3D_Skeleton skeleton = {0};
 
-    r3d_importer_t importer = {0};
-    if (!r3d_importer_create_from_file(&importer, filePath)) {
-        return skeleton;
-    }
+    R3D_Importer* importer = R3D_LoadImporter(filePath, 0);
+    if (importer == NULL) return skeleton;
 
-    r3d_importer_load_skeleton(&importer, &skeleton);
-    r3d_importer_destroy(&importer);
+    skeleton = R3D_LoadSkeletonFromImporter(importer);
+    R3D_UnloadImporter(importer);
 
     return skeleton;
 }
 
-R3D_Skeleton R3D_LoadSkeletonFromData(const void* data, unsigned int size, const char* hint)
+R3D_Skeleton R3D_LoadSkeletonFromMemory(const void* data, unsigned int size, const char* hint)
 {
     R3D_Skeleton skeleton = {0};
 
-    r3d_importer_t importer = {0};
-    if (!r3d_importer_create_from_memory(&importer, data, size, hint)) {
+    R3D_Importer* importer = R3D_LoadImporterFromMemory(data, size, hint, 0);
+    if (importer == NULL) return skeleton;
+
+    skeleton = R3D_LoadSkeletonFromImporter(importer);
+    R3D_UnloadImporter(importer);
+
+    return skeleton;
+}
+
+R3D_Skeleton R3D_LoadSkeletonFromImporter(const R3D_Importer* importer)
+{
+    R3D_Skeleton skeleton = {0};
+
+    if (!importer) {
+        R3D_TRACELOG(LOG_ERROR, "Cannot load skeleton from NULL importer");
         return skeleton;
     }
 
-    r3d_importer_load_skeleton(&importer, &skeleton);
-    r3d_importer_destroy(&importer);
+    if (r3d_importer_load_skeleton(importer, &skeleton)) {
+        R3D_TRACELOG(LOG_INFO, "Skeleton loaded successfully (%u bones): '%s'", importer->name, skeleton.boneCount);
+    }
+    else {
+        R3D_TRACELOG(LOG_WARNING, "Failed to load skeleton: '%s'", importer->name, skeleton.boneCount);
+    }
 
     return skeleton;
 }

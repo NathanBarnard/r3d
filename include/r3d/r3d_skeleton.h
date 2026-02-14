@@ -1,6 +1,6 @@
 /* r3d_skeleton.h -- R3D Skeleton Module.
  *
- * Copyright (c) 2025 Le Juez Victor
+ * Copyright (c) 2025-2026 Le Juez Victor
  *
  * This software is provided 'as-is', without any express or implied warranty.
  * For conditions of distribution and use, see accompanying LICENSE file.
@@ -10,6 +10,7 @@
 #define R3D_SKELETON_H
 
 #include "./r3d_platform.h"
+#include "./r3d_importer.h"
 #include <raylib.h>
 #include <stdint.h>
 
@@ -83,7 +84,17 @@ R3DAPI R3D_Skeleton R3D_LoadSkeleton(const char* filePath);
  * @param hint Optional format hint (can be NULL).
  * @return Return the loaded R3D_Skeleton.
  */
-R3DAPI R3D_Skeleton R3D_LoadSkeletonFromData(const void* data, unsigned int size, const char* hint);
+R3DAPI R3D_Skeleton R3D_LoadSkeletonFromMemory(const void* data, unsigned int size, const char* hint);
+
+/**
+ * @brief Loads a skeleton hierarchy from an existing importer.
+ *
+ * Extracts the skeleton data from a previously loaded importer instance.
+ *
+ * @param importer Importer instance to extract the skeleton from.
+ * @return Return the loaded R3D_Skeleton.
+ */
+R3DAPI R3D_Skeleton R3D_LoadSkeletonFromImporter(const R3D_Importer* importer);
 
 /**
  * @brief Frees the memory allocated for a skeleton.

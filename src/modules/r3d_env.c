@@ -1,6 +1,6 @@
 /* r3d_env.c -- Internal R3D environment module.
  *
- * Copyright (c) 2025 Le Juez Victor
+ * Copyright (c) 2025-2026 Le Juez Victor
  *
  * This software is provided 'as-is', without any express or implied warranty.
  * For conditions of distribution and use, see accompanying LICENSE file.
@@ -92,15 +92,11 @@ static bool layer_pool_expand(r3d_env_layer_pool_t* pool, int addCount)
 // TEXTURE FUNCTIONS
 // ========================================
 
-static bool allocate_texture_depth(GLuint texture, int size)
+static bool alloc_depth_stencil_renderbuffer(GLuint renderbuffer, int size)
 {
-    glBindTexture(GL_TEXTURE_2D, texture);
-    glTexImage2D(GL_TEXTURE_2D, 0, GL_DEPTH_COMPONENT16, size, size, 0, GL_DEPTH_COMPONENT, GL_UNSIGNED_INT, NULL);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-    glBindTexture(GL_TEXTURE_2D, 0);
+    glBindRenderbuffer(GL_RENDERBUFFER, renderbuffer);
+    glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH24_STENCIL8, size, size);
+    glBindRenderbuffer(GL_RENDERBUFFER, 0);
     return true;
 }
 
@@ -300,14 +296,14 @@ static void update_probe_matrix_frustum(r3d_env_probe_t* probe)
     };
 
     Matrix proj = MatrixPerspective(90 * DEG2RAD, 1.0, 0.05f, probe->range);
+    probe->invProj = MatrixInvert(proj);
 
     for (int face = 0; face < 6; face++) {
         Vector3 target = Vector3Add(probe->position, dirs[face]);
         Matrix view = MatrixLookAt(probe->position, target, ups[face]);
-        Matrix viewProj = r3d_matrix_multiply(&view, &proj);
-        probe->frustum[face] = r3d_frustum_create(viewProj);
-        probe->view[face] = view;
-        probe->proj[face] = proj;
+        probe->viewProj[face] = r3d_matrix_multiply(&view, &proj);
+        probe->frustum[face] = r3d_frustum_create(probe->viewProj[face]);
+        probe->invView[face] = MatrixInvert(view);
     }
 }
 
@@ -321,9 +317,11 @@ bool r3d_env_init(void)
 
     glGenFramebuffers(1, &R3D_MOD_ENV.workFramebuffer);
     glGenFramebuffers(1, &R3D_MOD_ENV.captureFramebuffer);
+
     glGenTextures(1, &R3D_MOD_ENV.irradianceArray);
     glGenTextures(1, &R3D_MOD_ENV.prefilterArray);
-    glGenTextures(1, &R3D_MOD_ENV.captureDepth);
+
+    glGenRenderbuffers(1, &R3D_MOD_ENV.captureDepth);
     glGenTextures(1, &R3D_MOD_ENV.captureCube);
 
     // Initialize layer pools
@@ -365,8 +363,10 @@ void r3d_env_quit(void)
 {
     if (R3D_MOD_ENV.irradianceArray) glDeleteTextures(1, &R3D_MOD_ENV.irradianceArray);
     if (R3D_MOD_ENV.prefilterArray) glDeleteTextures(1, &R3D_MOD_ENV.prefilterArray);
-    if (R3D_MOD_ENV.captureDepth) glDeleteTextures(1, &R3D_MOD_ENV.captureDepth);
+
+    if (R3D_MOD_ENV.captureDepth) glDeleteRenderbuffers(1, &R3D_MOD_ENV.captureDepth);
     if (R3D_MOD_ENV.captureCube) glDeleteTextures(1, &R3D_MOD_ENV.captureCube);
+
     if (R3D_MOD_ENV.workFramebuffer) glDeleteFramebuffers(1, &R3D_MOD_ENV.workFramebuffer);
     if (R3D_MOD_ENV.captureFramebuffer) glDeleteFramebuffers(1, &R3D_MOD_ENV.captureFramebuffer);
 
@@ -468,7 +468,7 @@ bool r3d_env_probe_iter(r3d_env_probe_t** probe, r3d_env_probe_array_enum_t arra
     return true;
 }
 
-void r3d_env_probe_update_and_cull(const r3d_frustum_t* viewFrustum)
+void r3d_env_probe_update_and_cull(const r3d_frustum_t* viewFrustum, bool* hasVisibleProbes)
 {
     r3d_env_probe_array_t* visibleProbes = &R3D_MOD_ENV.arrays[R3D_ENV_PROBE_ARRAY_VISIBLE];
     r3d_env_probe_array_t* validProbes = &R3D_MOD_ENV.arrays[R3D_ENV_PROBE_ARRAY_VALID];
@@ -501,6 +501,7 @@ void r3d_env_probe_update_and_cull(const r3d_frustum_t* viewFrustum)
 
         if (r3d_frustum_is_aabb_in(viewFrustum, &aabb)) {
             visibleProbes->probes[visibleProbes->count++] = index;
+            if (hasVisibleProbes) *hasVisibleProbes = true;
         }
     }
 }
@@ -596,14 +597,14 @@ void r3d_env_capture_bind_fbo(int face, int mipLevel)
     glBindFramebuffer(GL_FRAMEBUFFER, R3D_MOD_ENV.captureFramebuffer);
 
     if (!R3D_MOD_ENV.captureCubeAllocated) {
+        alloc_depth_stencil_renderbuffer(R3D_MOD_ENV.captureDepth, R3D_PROBE_CAPTURE_SIZE);
         cubemap_spec_t spec = cubemap_spec(R3D_PROBE_CAPTURE_SIZE, 0, true);
         allocate_cubemap(R3D_MOD_ENV.captureCube, spec);
-        allocate_texture_depth(R3D_MOD_ENV.captureDepth, R3D_PROBE_CAPTURE_SIZE);
         R3D_MOD_ENV.captureCubeAllocated = true;
 
-        glFramebufferTexture2D(
-            GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT,
-            GL_TEXTURE_2D, R3D_MOD_ENV.captureDepth, 0
+        glFramebufferRenderbuffer(
+            GL_FRAMEBUFFER, GL_DEPTH_STENCIL_ATTACHMENT,
+            GL_RENDERBUFFER, R3D_MOD_ENV.captureDepth
         );
     }
 

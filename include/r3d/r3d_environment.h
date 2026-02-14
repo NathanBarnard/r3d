@@ -1,6 +1,6 @@
 /* r3d_environment.h -- R3D Environment Module.
  *
- * Copyright (c) 2025 Le Juez Victor
+ * Copyright (c) 2025-2026 Le Juez Victor
  *
  * This software is provided 'as-is', without any express or implied warranty.
  * For conditions of distribution and use, see accompanying LICENSE file.
@@ -67,10 +67,10 @@
         },                                              \
         .ssao = {                                       \
             .sampleCount = 16,                          \
-            .intensity = 1.0f,                          \
+            .intensity = 0.5f,                          \
             .power = 1.5f,                              \
-            .radius = 0.35f,                            \
-            .bias = 0.007f,                             \
+            .radius = 0.5f,                             \
+            .bias = 0.02f,                              \
             .enabled = false,                           \
         },                                              \
         .ssil = {                                       \
@@ -84,6 +84,15 @@
             .convergence = 0.5f,                        \
             .enabled = false,                           \
         },                                              \
+        .ssr = {                                        \
+            .maxRaySteps = 32,                          \
+            .binarySteps = 4,                           \
+            .stepSize = 0.125f,                         \
+            .thickness = 0.2f,                          \
+            .maxDistance = 4.0f,                        \
+            .edgeFade = 0.25f,                          \
+            .enabled = false,                           \
+        },                                              \
         .bloom = {                                      \
             .mode = R3D_BLOOM_DISABLED,                 \
             .levels = 0.5f,                             \
@@ -91,16 +100,6 @@
             .threshold = 0.0f,                          \
             .softThreshold = 0.5f,                      \
             .filterRadius = 1.0f,                       \
-        },                                              \
-        .ssr = {                                        \
-            .maxRaySteps = 64,                          \
-            .binarySearchSteps = 8,                     \
-            .rayMarchLength = 8.0f,                     \
-            .depthThickness = 0.2f,                     \
-            .depthTolerance = 0.005f,                   \
-            .edgeFadeStart = 0.7f,                      \
-            .edgeFadeEnd = 1.0f,                        \
-            .enabled = false,                           \
         },                                              \
         .fog = {                                        \
             .mode = R3D_FOG_DISABLED,                   \
@@ -115,7 +114,6 @@
             .focusPoint = 10.0f,                        \
             .focusScale = 1.0f,                         \
             .maxBlurSize = 20.0f,                       \
-            .debugMode = false,                         \
         },                                              \
         .tonemap = {                                    \
             .mode = R3D_TONEMAP_LINEAR,                 \
@@ -245,6 +243,21 @@ typedef struct R3D_EnvSSIL {
 } R3D_EnvSSIL;
 
 /**
+ * @brief Screen Space Reflections (SSR) settings.
+ *
+ * Real-time reflections calculated in screen space.
+ */
+typedef struct R3D_EnvSSR {
+    int maxRaySteps;        ///< Maximum ray marching steps (default: 32)
+    int binarySteps;        ///< Binary search refinement steps (default: 4)
+    float stepSize;         ///< Ray step size (default: 0.125)
+    float thickness;        ///< Depth tolerance for valid hits (default: 0.2)
+    float maxDistance;      ///< Maximum ray distance (default: 4.0)
+    float edgeFade;         ///< Screen edge fade start [0,1] (default: 0.25)
+    bool enabled;           ///< Enable/disable SSR (default: false)
+} R3D_EnvSSR;
+
+/**
  * @brief Bloom post-processing settings.
  *
  * Glow effect around bright areas in the scene.
@@ -257,22 +270,6 @@ typedef struct R3D_EnvBloom {
     float softThreshold;    ///< Softness of brightness cutoff transition (default: 0.5)
     float filterRadius;     ///< Blur filter radius during upscaling (default: 1.0)
 } R3D_EnvBloom;
-
-/**
- * @brief Screen Space Reflections (SSR) settings.
- *
- * Real-time reflections calculated in screen space.
- */
-typedef struct R3D_EnvSSR {
-    int maxRaySteps;            ///< Maximum ray marching iterations (default: 64)
-    int binarySearchSteps;      ///< Refinement steps for intersection (default: 8)
-    float rayMarchLength;       ///< Maximum ray distance in view space (default: 8.0)
-    float depthThickness;       ///< Depth tolerance for valid hits (default: 0.2)
-    float depthTolerance;       ///< Negative margin to prevent false negatives (default: 0.005)
-    float edgeFadeStart;        ///< Screen edge fade start [0-1] (default: 0.7)
-    float edgeFadeEnd;          ///< Screen edge fade end [0-1] (default: 1.0)
-    bool enabled;               ///< Enable/disable SSR (default: false)
-} R3D_EnvSSR;
 
 /**
  * @brief Fog atmospheric effect settings.
@@ -296,7 +293,6 @@ typedef struct R3D_EnvDoF {
     float focusPoint;       ///< Focus distance in meters from camera (default: 10.0)
     float focusScale;       ///< Depth of field depth: lower = shallower (default: 1.0)
     float maxBlurSize;      ///< Maximum blur radius, similar to aperture (default: 20.0)
-    bool debugMode;         ///< Color-coded visualization: green=near, blue=far (default: false)
 } R3D_EnvDoF;
 
 /**
@@ -332,8 +328,8 @@ typedef struct R3D_Environment {
     R3D_EnvAmbient    ambient;      ///< Ambient lighting configuration
     R3D_EnvSSAO       ssao;         ///< Screen space ambient occlusion
     R3D_EnvSSIL       ssil;         ///< Screen space indirect lighting
-    R3D_EnvBloom      bloom;        ///< Bloom glow effect
     R3D_EnvSSR        ssr;          ///< Screen space reflections
+    R3D_EnvBloom      bloom;        ///< Bloom glow effect
     R3D_EnvFog        fog;          ///< Atmospheric fog
     R3D_EnvDoF        dof;          ///< Depth of field focus effect
     R3D_EnvTonemap    tonemap;      ///< HDR tone mapping

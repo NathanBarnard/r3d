@@ -1,6 +1,6 @@
 /* r3d_draw.c -- Internal R3D draw module.
  *
- * Copyright (c) 2025 Le Juez Victor
+ * Copyright (c) 2025-2026 Le Juez Victor
  *
  * This software is provided 'as-is', without any express or implied warranty.
  * For conditions of distribution and use, see accompanying LICENSE file.
@@ -20,31 +20,13 @@
 
 #include "../common/r3d_frustum.h"
 #include "../common/r3d_math.h"
+#include "../common/r3d_hash.h"
 
 // ========================================
 // MODULE STATE
 // ========================================
 
 struct r3d_draw R3D_MOD_DRAW;
-
-// ========================================
-// HELPER MACROS
-// ========================================
-
-#define IS_CALL_DECAL(call) (                                               \
-    ((call)->type == R3D_DRAW_CALL_DECAL)                                   \
-)
-
-#define IS_CALL_PREPASS(call) (                                             \
-    ((call)->type == R3D_DRAW_CALL_MESH) &&                                 \
-    ((call)->mesh.material.transparencyMode == R3D_TRANSPARENCY_PREPASS)    \
-)
-
-#define IS_CALL_FORWARD(call) (                                             \
-    ((call)->type == R3D_DRAW_CALL_MESH) &&                                 \
-    ((call)->mesh.material.transparencyMode == R3D_TRANSPARENCY_ALPHA ||    \
-     (call)->mesh.material.blendMode != R3D_BLEND_MIX)                      \
-)
 
 // ========================================
 // INTERNAL SHAPE FUNCTIONS
@@ -91,6 +73,10 @@ static void setup_shape_vertex_attribs(void)
     // instance color (vec4) (disabled)
     glVertexAttribDivisor(13, 1);
     glVertexAttrib4f(13, 1.0f, 1.0f, 1.0f, 1.0f);
+
+    // instance custom (vec4) (disabled)
+    glVertexAttribDivisor(14, 1);
+    glVertexAttrib4f(14, 0.0f, 0.0f, 0.0f, 0.0f);
 }
 
 static void load_shape(r3d_draw_shape_t* shape, const R3D_Vertex* verts, int vertCount, const GLubyte* indices, int idxCount)
@@ -376,25 +362,27 @@ static inline void sort_fill_material_data(r3d_draw_sort_t* sortData, const r3d_
 {
     switch (call->type) {
     case R3D_DRAW_CALL_MESH:
+        sortData->material.shader = (uintptr_t)call->mesh.material.shader;
+        sortData->material.shading = call->mesh.material.unlit;
         sortData->material.albedo = call->mesh.material.albedo.texture.id;
         sortData->material.normal = call->mesh.material.normal.texture.id;
         sortData->material.orm = call->mesh.material.orm.texture.id;
         sortData->material.emission = call->mesh.material.emission.texture.id;
+        sortData->material.stencil = r3d_hash_fnv1a_32(&call->mesh.material.stencil, sizeof(call->mesh.material.stencil));
+        sortData->material.depth = r3d_hash_fnv1a_32(&call->mesh.material.depth, sizeof(call->mesh.material.depth));
         sortData->material.blend = call->mesh.material.blendMode;
         sortData->material.cull = call->mesh.material.cullMode;
-        sortData->material.transparency = call->mesh.material.transparencyMode;
+        sortData->material.transparency = sortData->material.transparency;
         sortData->material.billboard = call->mesh.material.billboardMode;
         break;
-    
+
     case R3D_DRAW_CALL_DECAL:
+        memset(&sortData->material, 0, sizeof(sortData->material));
+        sortData->material.shader = (uintptr_t)call->decal.instance.shader;
         sortData->material.albedo = call->decal.instance.albedo.texture.id;
         sortData->material.normal = call->decal.instance.normal.texture.id;
         sortData->material.orm = call->decal.instance.orm.texture.id;
         sortData->material.emission = call->decal.instance.emission.texture.id;
-        sortData->material.blend = R3D_BLEND_MIX;
-        sortData->material.cull = R3D_CULL_NONE;
-        sortData->material.transparency = R3D_TRANSPARENCY_ALPHA;
-        sortData->material.billboard = R3D_BILLBOARD_DISABLED;
         break;
     }
 }
@@ -455,7 +443,7 @@ static void sort_fill_cache_by_material(r3d_draw_list_enum_t list)
         r3d_draw_sort_t* sortData = &R3D_MOD_DRAW.sortCache[callIndex];
 
         sortData->distance = 0.0f;
-        
+
         sort_fill_material_data(sortData, call);
     }
 }
@@ -574,9 +562,15 @@ void r3d_draw_clear(void)
     for (int i = 0; i < R3D_DRAW_LIST_COUNT; i++) {
         R3D_MOD_DRAW.list[i].numCalls = 0;
     }
+
     R3D_MOD_DRAW.numClusters = 0;
     R3D_MOD_DRAW.numGroups = 0;
     R3D_MOD_DRAW.numCalls = 0;
+
+    R3D_MOD_DRAW.groupCulled = false;
+    R3D_MOD_DRAW.hasDeferred = false;
+    R3D_MOD_DRAW.hasPrepass = false;
+    R3D_MOD_DRAW.hasForward = false;
 }
 
 bool r3d_draw_cluster_begin(BoundingBox aabb)
@@ -653,11 +647,15 @@ void r3d_draw_call_push(const r3d_draw_call_t* call)
     R3D_MOD_DRAW.groupIndices[callIndex] = groupIndex;
 
     // Determine the draw call list
-    r3d_draw_list_enum_t list = R3D_DRAW_LIST_DEFERRED;
-    if (IS_CALL_DECAL(call)) list = R3D_DRAW_LIST_DECAL;
-    else if (IS_CALL_PREPASS(call)) list = R3D_DRAW_LIST_PREPASS;
-    else if (IS_CALL_FORWARD(call)) list = R3D_DRAW_LIST_FORWARD;
+    r3d_draw_list_enum_t list = R3D_DRAW_LIST_OPAQUE;
+    if (r3d_draw_is_decal(call)) list = R3D_DRAW_LIST_DECAL;
+    else if (!r3d_draw_is_opaque(call)) list = R3D_DRAW_LIST_TRANSPARENT;
     if (r3d_draw_has_instances(group)) list += R3D_DRAW_LIST_NON_INST_COUNT;
+
+    // Update internal flags
+    if (r3d_draw_is_deferred(call)) R3D_MOD_DRAW.hasDeferred = true;
+    else if (r3d_draw_is_prepass(call)) R3D_MOD_DRAW.hasPrepass = true;
+    else if (r3d_draw_is_forward(call)) R3D_MOD_DRAW.hasForward = true;
 
     // Push the draw call and its index to the list
     R3D_MOD_DRAW.calls[callIndex] = *call;
@@ -674,56 +672,89 @@ r3d_draw_group_t* r3d_draw_get_call_group(const r3d_draw_call_t* call)
     return group;
 }
 
-void r3d_draw_compute_visible_groups(const r3d_frustum_t* frustum)
+void r3d_draw_cull_groups(const r3d_frustum_t* frustum)
 {
+    // Reset visibility states if groups were already culled in a previous pass
+    if (R3D_MOD_DRAW.groupCulled) {
+        for (int i = 0; i < R3D_MOD_DRAW.numGroups; i++) {
+            R3D_MOD_DRAW.groupVisibility[i].visible = R3D_DRAW_VISBILITY_UNKNOWN;
+        }
+        for (int i = 0; i < R3D_MOD_DRAW.numClusters; i++) {
+            R3D_MOD_DRAW.clusters[i].visible = R3D_DRAW_VISBILITY_UNKNOWN;
+        }
+    }
+    R3D_MOD_DRAW.groupCulled = true;
+
+    // Perform frustum culling for each group
     for (int i = 0; i < R3D_MOD_DRAW.numGroups; i++)
     {
         r3d_draw_group_visibility_t* visibility = &R3D_MOD_DRAW.groupVisibility[i];
         const r3d_draw_group_t* group = &R3D_MOD_DRAW.groups[i];
-        const BoundingBox* aabb = &group->aabb;
 
+        // Branch 1: Group belongs to a cluster
         if (visibility->clusterIndex >= 0) {
             r3d_draw_cluster_t* cluster = &R3D_MOD_DRAW.clusters[visibility->clusterIndex];
 
+            // Test cluster once (shared by multiple groups)
             if (cluster->visible == R3D_DRAW_VISBILITY_UNKNOWN) {
                 cluster->visible = frustum_test_aabb(frustum, &cluster->aabb, NULL);
             }
 
+            // If cluster is visible, test the group
             if (cluster->visible == R3D_DRAW_VISBILITY_TRUE) {
-                // If the group represents multiple instances or a skinned model, rely only on the cluster visibility
-                // TODO: It would be better to find an improved method for skinned models
-                visibility->visible =
-                    r3d_draw_has_instances(group) || (group->texPose > 0) ||
-                    frustum_test_aabb(frustum, &group->aabb, &group->transform);
+                // For instanced: trust cluster visibility
+                // For others: test group AABB individually
+                if (r3d_draw_has_instances(group)) visibility->visible = R3D_DRAW_VISBILITY_TRUE;
+                else visibility->visible = frustum_test_aabb(frustum, &group->aabb, &group->transform);
             }
             else {
                 visibility->visible = R3D_DRAW_VISBILITY_FALSE;
             }
         }
+        // Branch 2: Group without cluster
         else {
-            // If the group represents multiple instances or a skinned model, consider to be always visible
-            // TODO: It would be better to find an improved method for skinned models
-            visibility->visible =
-                r3d_draw_has_instances(group) || (group->texPose > 0) ||
-                frustum_test_aabb(frustum, &group->aabb, &group->transform);
+            // For instanced: always visible
+            // For others: test group AABB
+            if (r3d_draw_has_instances(group)) visibility->visible = R3D_DRAW_VISBILITY_TRUE;
+            else visibility->visible = frustum_test_aabb(frustum, &group->aabb, &group->transform);
         }
     }
 }
 
 bool r3d_draw_call_is_visible(const r3d_draw_call_t* call, const r3d_frustum_t* frustum)
 {
-    // If the parent group is not visible, discard this call immediately
-    // Then, if the call count for the group is one, it means it has already been tested
-    // Finally, if the group represents instances or a skinned model, rely only on the group's visibility
-
+    // Get the draw call's parent group and its visibility state
     int callIndex = get_draw_call_index(call);
     int groupIndex = R3D_MOD_DRAW.groupIndices[callIndex];
     const r3d_draw_group_t* group = &R3D_MOD_DRAW.groups[groupIndex];
+    r3d_draw_visibility_enum_t groupVisibility = R3D_MOD_DRAW.groupVisibility[groupIndex].visible;
 
-    if (!R3D_MOD_DRAW.groupVisibility[groupIndex].visible) return false;
-    if (R3D_MOD_DRAW.callIndices[groupIndex].numCall == 1) return true;
-    if (r3d_draw_has_instances(group) || group->texPose > 0) return true;
+    // If the group was already culled, reject immediately
+    if (groupVisibility == R3D_DRAW_VISBILITY_FALSE) {
+        return false;
+    }
 
+    // If the group passed culling, check if we can skip per-call testing
+    if (groupVisibility == R3D_DRAW_VISBILITY_TRUE) {
+        // Single-call groups were already tested at the group level
+        if (R3D_MOD_DRAW.callIndices[groupIndex].numCall == 1) {
+            return true;
+        }
+        // Instanced/skinned groups: trust the group-level test
+        if (r3d_draw_has_instances(group) || group->skinTexture > 0) {
+            return true;
+        }
+        // Multi-call group: fall through to individual call testing
+    }
+    // If the group hasn't been tested yet, check instanced/skinned groups now
+    else if (groupVisibility == R3D_DRAW_VISBILITY_UNKNOWN) {
+        if (r3d_draw_has_instances(group) || group->skinTexture > 0) {
+            return frustum_test_aabb(frustum, &group->aabb, &group->transform);
+        }
+        // Regular multi-call group: fall through to individual call testing
+    }
+
+    // Test this specific draw call against the frustum
     return frustum_test_draw_call(frustum, call, &group->transform);
 }
 
@@ -755,80 +786,6 @@ void r3d_draw_sort_list(r3d_draw_list_enum_t list, Vector3 viewPosition, r3d_dra
         sizeof(*drawList->calls),
         compare_func
     );
-}
-
-void r3d_draw_apply_cull_mode(R3D_CullMode mode)
-{
-    switch (mode) {
-    case R3D_CULL_NONE:
-        glDisable(GL_CULL_FACE);
-        break;
-    case R3D_CULL_BACK:
-        glEnable(GL_CULL_FACE);
-        glCullFace(GL_BACK);
-        break;
-    case R3D_CULL_FRONT:
-        glEnable(GL_CULL_FACE);
-        glCullFace(GL_FRONT);
-        break;
-    }
-}
-
-void r3d_draw_apply_blend_mode(R3D_BlendMode blend, R3D_TransparencyMode transparency)
-{
-    switch (blend) {
-    case R3D_BLEND_MIX:
-        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-        break;
-    case R3D_BLEND_ADDITIVE:
-        if (transparency == R3D_TRANSPARENCY_DISABLED) {
-            glBlendFunc(GL_ONE, GL_ONE);
-        }
-        else {
-            glBlendFunc(GL_SRC_ALPHA, GL_ONE);
-        }
-        break;
-    case R3D_BLEND_MULTIPLY:
-        glBlendFunc(GL_DST_COLOR, GL_ZERO);
-        break;
-    case R3D_BLEND_PREMULTIPLIED_ALPHA:
-        glBlendFunc(GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
-        break;
-    default:
-        break;
-    }
-}
-
-void r3d_draw_apply_shadow_cast_mode(R3D_ShadowCastMode castMode, R3D_CullMode cullMode)
-{
-    switch (castMode) {
-    case R3D_SHADOW_CAST_ON_AUTO:
-    case R3D_SHADOW_CAST_ONLY_AUTO:
-        r3d_draw_apply_cull_mode(cullMode);
-        break;
-
-    case R3D_SHADOW_CAST_ON_DOUBLE_SIDED:
-    case R3D_SHADOW_CAST_ONLY_DOUBLE_SIDED:
-        glDisable(GL_CULL_FACE);
-        break;
-
-    case R3D_SHADOW_CAST_ON_FRONT_SIDE:
-    case R3D_SHADOW_CAST_ONLY_FRONT_SIDE:
-        glEnable(GL_CULL_FACE);
-        glCullFace(GL_BACK);
-        break;
-
-    case R3D_SHADOW_CAST_ON_BACK_SIDE:
-    case R3D_SHADOW_CAST_ONLY_BACK_SIDE:
-        glEnable(GL_CULL_FACE);
-        glCullFace(GL_FRONT);
-        break;
-
-    case R3D_SHADOW_CAST_DISABLED:
-    default:
-        assert(false && "This shouldn't happen");
-        break;
-    }
 }
 
 void r3d_draw(const r3d_draw_call_t* call)
@@ -886,6 +843,15 @@ void r3d_draw_instanced(const r3d_draw_call_t* call)
     }
     else {
         glDisableVertexAttribArray(13);
+    }
+
+    if (BIT_TEST(instances->flags, R3D_INSTANCE_CUSTOM)) {
+        glBindBuffer(GL_ARRAY_BUFFER, instances->buffers[4]);
+        glEnableVertexAttribArray(14);
+        glVertexAttribPointer(14, 4, GL_FLOAT, GL_FALSE, sizeof(Vector4), 0);
+    }
+    else {
+        glDisableVertexAttribArray(14);
     }
 
     if (elemCount == 0) {

@@ -1,6 +1,6 @@
 /* r3d_mesh.h -- R3D Mesh Module.
  *
- * Copyright (c) 2025 Le Juez Victor
+ * Copyright (c) 2025-2026 Le Juez Victor
  *
  * This software is provided 'as-is', without any express or implied warranty.
  * For conditions of distribution and use, see accompanying LICENSE file.
@@ -90,6 +90,10 @@ R3D_Mesh R3D_LoadMesh(R3D_PrimitiveType type, R3D_MeshData data, const BoundingB
     // instance color (vec4) (disabled)
     glVertexAttribDivisor(13, 1);
     glVertexAttrib4f(13, 1.0f, 1.0f, 1.0f, 1.0f);
+
+    // instance color (vec4) (disabled)
+    glVertexAttribDivisor(14, 1);
+    glVertexAttrib4f(14, 0.0f, 0.0f, 0.0f, 0.0f);
 
     // EBO if indices present
     if (data.indexCount > 0 && data.indices) {
@@ -215,6 +219,24 @@ R3D_Mesh R3D_GenMeshCubeEx(float width, float height, float length, int resX, in
     return mesh;
 }
 
+R3D_Mesh R3D_GenMeshSlope(float width, float height, float length, Vector3 slopeNormal)
+{
+    R3D_Mesh mesh = {0};
+
+    R3D_MeshData data = R3D_GenMeshDataSlope(width, height, length, slopeNormal);
+    if (!R3D_IsMeshDataValid(data)) return mesh;
+
+    BoundingBox aabb = {
+        {-width * 0.5f, -height * 0.5f, -length * 0.5f},
+        { width * 0.5f,  height * 0.5f,  length * 0.5f}
+    };
+
+    mesh = R3D_LoadMesh(R3D_PRIMITIVE_TRIANGLES, data, &aabb, R3D_STATIC_MESH);
+    R3D_UnloadMeshData(data);
+
+    return mesh;
+}
+
 R3D_Mesh R3D_GenMeshSphere(float radius, int rings, int slices)
 {
     R3D_Mesh mesh = {0};
@@ -263,6 +285,24 @@ R3D_Mesh R3D_GenMeshCylinder(float bottomRadius, float topRadius, float height, 
     BoundingBox aabb = {
         {-radius,   0.0f, -radius},
         { radius, height,  radius}
+    };
+
+    mesh = R3D_LoadMesh(R3D_PRIMITIVE_TRIANGLES, data, &aabb, R3D_STATIC_MESH);
+    R3D_UnloadMeshData(data);
+
+    return mesh;
+}
+
+R3D_Mesh R3D_GenMeshCapsule(float radius, float height, int rings, int slices)
+{
+    R3D_Mesh mesh = {0};
+
+    R3D_MeshData data = R3D_GenMeshDataCapsule(radius, height, rings, slices);
+    if (!R3D_IsMeshDataValid(data)) return mesh;
+
+    BoundingBox aabb = {
+        {-radius, -radius,          -radius},
+        { radius,  height + radius,  radius}
     };
 
     mesh = R3D_LoadMesh(R3D_PRIMITIVE_TRIANGLES, data, &aabb, R3D_STATIC_MESH);

@@ -1,6 +1,6 @@
 /* r3d_pass.h -- Common R3D Passes
  *
- * Copyright (c) 2025 Le Juez Victor
+ * Copyright (c) 2025-2026 Le Juez Victor
  *
  * This software is provided 'as-is', without any express or implied warranty.
  * For conditions of distribution and use, see accompanying LICENSE file.
@@ -16,7 +16,7 @@
 // COMMON ENVIRONMENT GENERATION
 // ========================================
 
-void r3d_pass_prepare_irradiance(int layerMap, GLuint srcCubemap, int srcSize);
-void r3d_pass_prepare_prefilter(int layerMap, GLuint srcCubemap, int srcSize);
+void r3d_pass_prepare_irradiance(int layerMap, GLuint srcCubemap, int srcSize, bool invalidateCache);
+void r3d_pass_prepare_prefilter(int layerMap, GLuint srcCubemap, int srcSize, bool invalidateCache);
 
 #endif // R3D_COMMON_PASS_H

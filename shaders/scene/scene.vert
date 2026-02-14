@@ -1,6 +1,6 @@
 /* scene.vert -- Common vertex shader for all scene render paths.
  *
- * Copyright (c) 2025 Le Juez Victor
+ * Copyright (c) 2025-2026 Le Juez Victor
  *
  * This software is provided 'as-is', without any express or implied warranty.
  * For conditions of distribution and use, see accompanying LICENSE file.
@@ -34,6 +34,7 @@ layout(location = 10) in vec3 iPosition;
 layout(location = 11) in vec4 iRotation;
 layout(location = 12) in vec3 iScale;
 layout(location = 13) in vec4 iColor;
+layout(location = 14) in vec4 iCustom;
 
 /* === Uniforms === */
 
@@ -53,10 +54,10 @@ uniform bool uInstancing;
 uniform bool uSkinning;
 uniform int uBillboard;
 
-#if defined(DEPTH) || defined(DEPTH_CUBE) || defined(PROBE)
+#if defined(UNLIT) || defined(DEPTH) || defined(DEPTH_CUBE) || defined(PROBE)
 uniform mat4 uMatInvView;   // inv view only for billboard modes
 uniform mat4 uMatViewProj;
-#endif // DEPTH || DEPTH_CUBE
+#endif // UNLIT || DEPTH || DEPTH_CUBE || PROBE
 
 /* === Varyings === */
 
@@ -66,9 +67,13 @@ flat   out vec3 vEmission;
 smooth out vec4 vColor;
 smooth out mat3 vTBN;
 
+#if defined(GEOMETRY)
+smooth out float vLinearDepth;
+#endif // GEOMETRY
+
 #if defined(FORWARD) || defined(PROBE)
 smooth out vec4 vPosLightSpace[NUM_FORWARD_LIGHTS];
-#endif // FORWARD
+#endif // FORWARD || PROBE
 
 #if defined(DECAL)
 smooth out mat4 vDecalProjection;
@@ -152,18 +157,24 @@ void BillboardYAxis(inout vec3 position, inout vec3 normal, inout vec3 tangent, 
     tangent = localTangent.x*right + localTangent.y*upVector + localTangent.z*front;
 }
 
+/* === User override === */
+
+#include "../include/user/scene.vert"
+
 /* === Main program === */
 
 void main()
 {
+    SceneVertex();
+
 #if defined(DECAL)
     mat4 finalMatModel = uMatModel;
 #endif // DECAL
 
     vec3 billboardCenter = vec3(uMatModel[3]);
-    vec3 localPosition = aPosition;
-    vec3 localNormal = aNormal;
-    vec3 localTangent = aTangent.xyz;
+    vec3 localPosition = POSITION;
+    vec3 localNormal = NORMAL;
+    vec3 localTangent = TANGENT.xyz;
 
     if (uSkinning) {
         mat4 sMatModel = SkinMatrix(aBoneIDs, aWeights);
@@ -178,20 +189,20 @@ void main()
     vec3 finalTangent = mat3(uMatNormal) * localTangent;
 
     if (uInstancing) {
-        billboardCenter += iPosition;
-        finalPosition = finalPosition * iScale;
-        finalPosition = M_Rotate3D(finalPosition, iRotation);
-        finalPosition = finalPosition + iPosition;
-        finalNormal = M_Rotate3D(finalNormal, iRotation);
-        finalTangent = M_Rotate3D(finalTangent, iRotation);
+        billboardCenter += INSTANCE_POSITION;
+        finalPosition = finalPosition * INSTANCE_SCALE;
+        finalPosition = M_Rotate3D(finalPosition, INSTANCE_ROTATION);
+        finalPosition = finalPosition + INSTANCE_POSITION;
+        finalNormal = M_Rotate3D(finalNormal, INSTANCE_ROTATION);
+        finalTangent = M_Rotate3D(finalTangent, INSTANCE_ROTATION);
 
     #if defined(DECAL)
-        mat4 iMatModel = MatrixTransform(iPosition, iRotation, iScale);
+        mat4 iMatModel = MatrixTransform(INSTANCE_POSITION, INSTANCE_ROTATION, INSTANCE_SCALE);
         finalMatModel = iMatModel * finalMatModel;
     #endif // DECAL
     }
 
-#if defined(DEPTH) || defined(DEPTH_CUBE) || defined(PROBE)
+#if defined(UNLIT) || defined(DEPTH) || defined(DEPTH_CUBE) || defined(PROBE)
     if (uBillboard == BILLBOARD_FRONT) {
         BillboardFront(finalPosition, finalNormal, finalTangent, billboardCenter, uMatInvView);
     }
@@ -209,21 +220,25 @@ void main()
 
     vec3 T = normalize(finalTangent);
     vec3 N = normalize(finalNormal);
-    vec3 B = normalize(cross(N, T) * aTangent.w);
+    vec3 B = normalize(cross(N, T) * TANGENT.w);
 
     vPosition = finalPosition;
-    vTexCoord = uTexCoordOffset + aTexCoord * uTexCoordScale;
-    vEmission = uEmissionColor * uEmissionEnergy;
-    vColor = aColor * iColor * uAlbedoColor;
+    vTexCoord = TEXCOORD;
+    vEmission = EMISSION;
+    vColor = COLOR * INSTANCE_COLOR;
     vTBN = mat3(T, B, N);
+
+#if defined(GEOMETRY)
+    vLinearDepth = -(uView.view * vec4(vPosition, 1.0)).z;
+#endif // GEOMETRY
 
 #if defined(FORWARD) || defined(PROBE)
     for (int i = 0; i < uNumLights; i++) {
         vPosLightSpace[i] = uLights[i].viewProj * vec4(vPosition, 1.0);
     }
-#endif // FORWARD
+#endif // FORWARD || PROBE
 
-#if defined(DEPTH) || defined(DEPTH_CUBE) || defined(PROBE)
+#if defined(UNLIT) || defined(DEPTH) || defined(DEPTH_CUBE) || defined(PROBE)
     gl_Position = uMatViewProj * vec4(vPosition, 1.0);
 #else
     gl_Position = uView.viewProj * vec4(vPosition, 1.0);
